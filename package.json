@@ -1,0 +1,27 @@
+{
+  "name": "oma3-ops",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deterministic Safe transaction generation for OMA3 lock operations",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "lock-add-locks": "dist/lock-add-locks.js",
+    "lock-update-locks": "dist/lock-update-locks.js",
+    "hash": "dist/hash.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ethers": "^6.15.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
