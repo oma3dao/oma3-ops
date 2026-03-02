@@ -298,7 +298,7 @@ function planChunks(params: {
 
 function printUsage(operation: Operation): void {
   const command = operation === 'addLocks' ? 'lock-add-locks' : 'lock-update-locks';
-  console.log(`Usage:\n  ${command} --anchor-date-utc <ISO-8601 UTC datetime> --input <csv> --out-dir <dir> [--network sepolia|mainnet] [--max-wallets-per-tx 200] [--rpc-url <url>] [--allow-address-override --lock-contract <addr> --oma-token <addr>] [--require-amount-wei]`);
+  console.log(`Usage:\n  ${command} --anchor-date-utc <ISO-8601 UTC datetime> --csv <csv> --out-dir <dir> [--network sepolia|mainnet] [--max-wallets-per-tx 200] [--rpc-url <url>] [--allow-address-override --lock-contract <addr> --oma-token <addr>] [--require-amount-wei]`);
 }
 
 export async function runLockCommand(operation: Operation, argv: string[]): Promise<void> {
@@ -307,7 +307,7 @@ export async function runLockCommand(operation: Operation, argv: string[]): Prom
     'help',
     'network',
     'anchor-date-utc',
-    'input',
+    'csv',
     'out-dir',
     'max-wallets-per-tx',
     'rpc-url',
@@ -330,7 +330,7 @@ export async function runLockCommand(operation: Operation, argv: string[]): Prom
   const networkNameRaw = getOptionalString(parsed.options, 'network') ?? 'sepolia';
   const networkName = getNetworkConfig(networkNameRaw).name as NetworkName;
   const anchorDateUtc = getRequiredOption(parsed.options, 'anchor-date-utc');
-  const inputPath = resolve(getRequiredOption(parsed.options, 'input'));
+  const inputPath = resolve(getRequiredOption(parsed.options, 'csv'));
   const outDir = resolve(getRequiredOption(parsed.options, 'out-dir'));
   const maxWalletsPerTx = getPositiveIntOption(parsed.options, 'max-wallets-per-tx', 200);
   const rpcUrl = getOptionalString(parsed.options, 'rpc-url');

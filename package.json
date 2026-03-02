@@ -8,6 +8,7 @@
   "bin": {
     "lock-add-locks": "dist/lock-add-locks.js",
     "lock-update-locks": "dist/lock-update-locks.js",
+    "lock-status": "dist/lock-status.js",
     "hash": "dist/hash.js"
   },
   "scripts": {

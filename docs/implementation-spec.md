@@ -41,6 +41,11 @@ The system must:
 
    * Input: CSV
 
+3. `getLock` / read-only lock status query
+
+   * Input: wallet address(es) or CSV
+   * Output: terminal table or JSON file
+
 Each contract function will either:
 
 * Have its own script, OR

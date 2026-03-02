@@ -9,6 +9,7 @@ Phase 1 supports lock contract operations only:
 
 - `addLocks`
 - `updateLocks`
+- `getLock` (read-only status query)
 
 Not in V1:
 
@@ -47,6 +48,7 @@ One command per operation, with shared core modules:
 
 - `lock-add-locks`
 - `lock-update-locks`
+- `lock-status` (read-only)
 - `hash` (utility)
 
 Shared modules handle:
@@ -385,7 +387,7 @@ Final flag names may evolve, but behavior should match this contract.
 lock-add-locks \
   --network <mainnet|sepolia> \
   --anchor-date-utc <ISO-8601 UTC datetime> \
-  --input <path/to/file.csv> \
+  --csv <path/to/file.csv> \
   --out-dir <path/to/output> \
   --max-wallets-per-tx 200
 ```
@@ -408,12 +410,55 @@ Network mapping:
 lock-update-locks \
   --network <mainnet|sepolia> \
   --anchor-date-utc <ISO-8601 UTC datetime> \
-  --input <path/to/file.csv> \
+  --csv <path/to/file.csv> \
   --out-dir <path/to/output> \
   --max-wallets-per-tx 200
 ```
 
 `lock-update-locks` uses the same anchor rules as `lock-add-locks`.
+
+### `lock-status`
+
+Read-only command that queries `getLock()` on-chain for one or more wallets and prints lock status.
+
+```bash
+# Single or multiple wallets
+lock-status \
+  --network <mainnet|sepolia> \
+  --wallet 0xabc... 0xdef... 0x123...
+
+# Batch from CSV (requires `address` column header)
+lock-status \
+  --network <mainnet|sepolia> \
+  --csv <path/to/wallets.csv>
+```
+
+Exactly one of `--wallet` or `--csv` must be provided. `--wallet` accepts one or more space-separated addresses as positional arguments after the flag.
+
+Optional:
+
+- `--out <path>` writes output to a file (JSON format). Without this flag, output is printed to the terminal as a human-readable table.
+
+Per-wallet output fields:
+
+- `address`: wallet address (checksum)
+- `hasLock`: whether a lock record exists
+- `timestamp`: lock creation timestamp (unix + UTC)
+- `cliffDate`: cliff date (unix + UTC)
+- `lockEndDate`: lock end date (unix + UTC)
+- `amount`: total locked amount (human + wei)
+- `claimedAmount`: amount claimed (human + wei)
+- `stakedAmount`: amount staked (human + wei)
+- `slashedAmount`: amount slashed (human + wei)
+- `unlockedAmount`: current unlocked amount (human + wei)
+- `claimable`: available to claim now (human + wei), computed as `min(unlockedAmount - claimedAmount, amount - claimedAmount - stakedAmount - slashedAmount)`, floored at 0
+- `vestingProgress`: percentage of total amount unlocked, e.g. `45.2%`
+
+Wallets without a lock record are reported with `hasLock: false` and all other fields as `N/A` (no error).
+
+Defaults:
+
+- `--network sepolia`
 
 ### `hash`
 
