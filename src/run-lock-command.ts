@@ -30,7 +30,7 @@ import { renderSummary, type SummaryTransaction } from './summary-builder.js';
 const UINT96_MAX = (1n << 96n) - 1n;
 const UINT40_MAX = (1n << 40n) - 1n;
 
-interface ParsedRow {
+export interface ParsedRow {
   readonly lineNumber: number;
   readonly address: string;
   readonly addressLower: string;
@@ -42,7 +42,7 @@ interface ParsedRow {
   readonly lockEndDate: number;
 }
 
-interface ChunkPlan {
+export interface ChunkPlan {
   readonly operation: Operation;
   readonly cliffDate: number;
   readonly lockEndDate: number;
@@ -63,7 +63,7 @@ function requireInt(name: string, raw: string, lineNumber: number): number {
   return value;
 }
 
-function parseRows(params: {
+export function parseRows(params: {
   readonly csvPath: string;
   readonly anchorDate: Date;
   readonly decimals: number;
@@ -214,7 +214,7 @@ function parseRows(params: {
   };
 }
 
-function planChunks(params: {
+export function planChunks(params: {
   readonly operation: Operation;
   readonly rows: readonly ParsedRow[];
   readonly lockContract: string;
