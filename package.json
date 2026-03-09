@@ -9,11 +9,17 @@
     "lock-add-locks": "dist/lock-add-locks.js",
     "lock-update-locks": "dist/lock-update-locks.js",
     "lock-status": "dist/lock-status.js",
+    "lock-verify-json": "dist/lock-verify-json.js",
     "hash": "dist/hash.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lock-add-locks": "node --env-file=.env.local dist/lock-add-locks.js",
+    "lock-update-locks": "node --env-file=.env.local dist/lock-update-locks.js",
+    "lock-status": "node --env-file=.env.local dist/lock-status.js",
+    "lock-verify-json": "node --env-file=.env.local dist/lock-verify-json.js",
+    "hash": "node dist/hash.js"
   },
   "engines": {
     "node": ">=20"

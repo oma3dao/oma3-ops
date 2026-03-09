@@ -1,5 +1,8 @@
 # OMA Treasury Contract Management – Safe Transaction Generation & Verification Plan
 
+> **⚠️ HISTORICAL DOCUMENT — DO NOT USE AS CURRENT SPEC.**
+> This was the original design plan written before implementation. It is preserved for historical context only. The authoritative specification is [`README.md`](../README.md) in the repository root. If anything in this document conflicts with the README, the README is correct.
+
 ## Objective
 
 Build a deterministic, script-based system for managing OMA token and lock contracts through Safe (Gnosis Safe) without relying on a custom frontend.
