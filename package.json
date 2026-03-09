@@ -8,6 +8,8 @@
   "bin": {
     "lock-add-locks": "dist/lock-add-locks.js",
     "lock-update-locks": "dist/lock-update-locks.js",
+    "lock-slash": "dist/lock-slash.js",
+    "lock-slash-stake": "dist/lock-slash-stake.js",
     "lock-status": "dist/lock-status.js",
     "lock-verify-json": "dist/lock-verify-json.js",
     "hash": "dist/hash.js"
@@ -17,6 +19,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lock-add-locks": "node --env-file=.env.local dist/lock-add-locks.js",
     "lock-update-locks": "node --env-file=.env.local dist/lock-update-locks.js",
+    "lock-slash": "node --env-file=.env.local dist/lock-slash.js",
+    "lock-slash-stake": "node --env-file=.env.local dist/lock-slash-stake.js",
     "lock-status": "node --env-file=.env.local dist/lock-status.js",
     "lock-verify-json": "node --env-file=.env.local dist/lock-verify-json.js",
     "hash": "node dist/hash.js"

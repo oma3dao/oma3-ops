@@ -1,10 +1,12 @@
 import { Interface, getAddress } from 'ethers';
 
-export type Operation = 'addLocks' | 'updateLocks';
+export type Operation = 'addLocks' | 'updateLocks' | 'slash' | 'slashStake';
 
 const LOCK_INTERFACE = new Interface([
   'function addLocks(address[] wallets_, uint96[] amounts_, uint40 cliffDate_, uint40 lockEndDate_)',
   'function updateLocks(address[] wallets_, uint40 cliffDate_, uint40 lockEndDate_)',
+  'function slash(address wallet_, address to_)',
+  'function slashStake(address wallet_, uint96 amount_, address to_)',
 ]);
 
 interface ContractMethodInput {
@@ -46,6 +48,29 @@ function contractMethodFor(operation: Operation): ContractMethod {
         { internalType: 'uint96[]', name: 'amounts_', type: 'uint96[]' },
         { internalType: 'uint40', name: 'cliffDate_', type: 'uint40' },
         { internalType: 'uint40', name: 'lockEndDate_', type: 'uint40' },
+      ],
+    };
+  }
+
+  if (operation === 'slash') {
+    return {
+      name: 'slash',
+      payable: false,
+      inputs: [
+        { internalType: 'address', name: 'wallet_', type: 'address' },
+        { internalType: 'address', name: 'to_', type: 'address' },
+      ],
+    };
+  }
+
+  if (operation === 'slashStake') {
+    return {
+      name: 'slashStake',
+      payable: false,
+      inputs: [
+        { internalType: 'address', name: 'wallet_', type: 'address' },
+        { internalType: 'uint96', name: 'amount_', type: 'uint96' },
+        { internalType: 'address', name: 'to_', type: 'address' },
       ],
     };
   }
@@ -105,6 +130,62 @@ export function buildSafeTransaction(payload: ChunkPayload): SafeTransaction {
   };
 }
 
+export interface SlashPayload {
+  readonly lockContract: string;
+  readonly wallet: string;
+  readonly to: string;
+}
+
+export function buildSlashTransaction(payload: SlashPayload): SafeTransaction {
+  const lockContract = getAddress(payload.lockContract);
+  const wallet = getAddress(payload.wallet);
+  const to = getAddress(payload.to);
+
+  const data = LOCK_INTERFACE.encodeFunctionData('slash', [wallet, to]);
+
+  return {
+    to: lockContract,
+    value: '0',
+    data,
+    contractMethod: contractMethodFor('slash'),
+    contractInputsValues: {
+      wallet_: wallet,
+      to_: to,
+    },
+  };
+}
+
+export interface SlashStakePayload {
+  readonly lockContract: string;
+  readonly wallet: string;
+  readonly amountWei: bigint;
+  readonly to: string;
+}
+
+export function buildSlashStakeTransaction(payload: SlashStakePayload): SafeTransaction {
+  const lockContract = getAddress(payload.lockContract);
+  const wallet = getAddress(payload.wallet);
+  const to = getAddress(payload.to);
+
+  const data = LOCK_INTERFACE.encodeFunctionData('slashStake', [
+    wallet,
+    payload.amountWei,
+    to,
+  ]);
+
+  return {
+    to: lockContract,
+    value: '0',
+    data,
+    contractMethod: contractMethodFor('slashStake'),
+    contractInputsValues: {
+      wallet_: wallet,
+      amount_: payload.amountWei.toString(),
+      to_: to,
+    },
+  };
+}
+
 export interface SafeBatchFile {
   readonly version: '1.0';
   readonly chainId: string;
@@ -125,7 +206,13 @@ export function buildSafeBatchFile(params: {
   readonly shortFingerprint: string;
   readonly transactions: readonly SafeTransaction[];
 }): SafeBatchFile {
-  const cliCommand = params.operation === 'addLocks' ? 'lock-add-locks' : 'lock-update-locks';
+  const CLI_COMMANDS: Record<Operation, string> = {
+    addLocks: 'lock-add-locks',
+    updateLocks: 'lock-update-locks',
+    slash: 'lock-slash',
+    slashStake: 'lock-slash-stake',
+  };
+  const cliCommand = CLI_COMMANDS[params.operation];
   return {
     version: '1.0',
     chainId: params.chainId.toString(),

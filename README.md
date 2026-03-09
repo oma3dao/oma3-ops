@@ -310,6 +310,101 @@ Place the input CSV in the folder first, then point both `--csv` and `--out-dir`
 
 ---
 
+## Slashing Locks (`lock-slash`)
+
+Generates Safe transactions that call `slash(address wallet_, address to_)` for each wallet. This deletes the lock record and transfers the remaining balance (`amount - claimedAmount - slashedAmount`) to the `--to` destination (typically the Safe/treasury). Tokens already claimed before slashing are not recoverable.
+
+The contract reverts with `AmountStaked` if a wallet has staked tokens. The script queries `getLock()` on-chain for each wallet before generating transactions and will hard-error if any wallet has `stakedAmount > 0`, listing the affected wallets and instructing the operator to run `lock-slash-stake` first.
+
+```bash
+lock-slash \
+  --network mainnet \
+  --csv data/runs/mainnet/2025-03-10-003-slash/input.csv \
+  --to 0xSafeTreasuryAddress \
+  --out-dir data/runs/mainnet/2025-03-10-003-slash
+```
+
+### CSV Format
+
+| Column    | Format                        | Description      |
+|-----------|-------------------------------|------------------|
+| `address` | EVM checksum or lowercase hex | Wallet to slash  |
+
+### Parameters
+
+| Flag                       | Required | Default   | Description                                      |
+|----------------------------|----------|-----------|--------------------------------------------------|
+| `--network`                | no       | `sepolia` | `mainnet` or `sepolia`                           |
+| `--csv`                    | yes      | —         | CSV file with `address` column                   |
+| `--to`                     | yes      | —         | Destination address for recovered tokens         |
+| `--out-dir`                | yes      | —         | Directory for output files                       |
+| `--rpc-url`                | no       | —         | Override RPC endpoint                            |
+| `--lock-contract`          | no       | —         | Override OMALock address (requires `--allow-address-override`) |
+| `--oma-token`              | no       | —         | Override OMA token address (requires `--allow-address-override`) |
+| `--allow-address-override` | no       | `false`   | Allow `--lock-contract` / `--oma-token` overrides |
+
+### Behavior
+
+- One `slash()` call per wallet → one Safe transaction per wallet in the batch.
+- Wallets are sorted by lowercase address for deterministic output.
+- If any wallet has no lock on-chain, the script errors.
+- If any wallet has `stakedAmount > 0`, the script errors with a clear message listing all affected wallets. `lock-slash-stake` must be run first for those wallets — these are separate governance decisions.
+
+### Outputs
+
+`safe-tx.json` and `safe-tx.summary.txt` in `--out-dir`, following the same patterns as other write commands.
+
+---
+
+## Slashing Staked Tokens (`lock-slash-stake`)
+
+Generates Safe transactions that call `slashStake(address wallet_, uint96 amount_, address to_)` for each wallet. This reduces the wallet's `stakedAmount` and transfers the slashed tokens to `--to`. The lock record is preserved (not deleted).
+
+The script queries `getLock()` on-chain for each wallet to read the current `stakedAmount`. By default, the full `stakedAmount` is slashed. To slash a partial amount, include a `stakedAmount` column in the CSV with the wei value to slash.
+
+```bash
+# Slash full staked amount for each wallet
+lock-slash-stake \
+  --network mainnet \
+  --csv data/runs/mainnet/2025-03-10-004-slashStake/input.csv \
+  --to 0xSafeTreasuryAddress \
+  --out-dir data/runs/mainnet/2025-03-10-004-slashStake
+```
+
+### CSV Format
+
+| Column         | Format                        | Required | Description                                                        |
+|----------------|-------------------------------|----------|--------------------------------------------------------------------|
+| `address`      | EVM checksum or lowercase hex | yes      | Wallet to slash stake from                                         |
+| `stakedAmount` | Integer wei string            | no       | Partial amount to slash (wei). Omit or leave blank for full slash. |
+
+### Parameters
+
+| Flag                       | Required | Default   | Description                                      |
+|----------------------------|----------|-----------|--------------------------------------------------|
+| `--network`                | no       | `sepolia` | `mainnet` or `sepolia`                           |
+| `--csv`                    | yes      | —         | CSV file with `address` column                   |
+| `--to`                     | yes      | —         | Destination address for slashed tokens           |
+| `--out-dir`                | yes      | —         | Directory for output files                       |
+| `--rpc-url`                | no       | —         | Override RPC endpoint                            |
+| `--lock-contract`          | no       | —         | Override OMALock address (requires `--allow-address-override`) |
+| `--oma-token`              | no       | —         | Override OMA token address (requires `--allow-address-override`) |
+| `--allow-address-override` | no       | `false`   | Allow `--lock-contract` / `--oma-token` overrides |
+
+### Behavior
+
+- One `slashStake()` call per wallet → one Safe transaction per wallet in the batch.
+- Wallets are sorted by lowercase address for deterministic output.
+- If any wallet has no lock on-chain, the script errors.
+- If any wallet has `stakedAmount == 0` on-chain, the script errors (nothing to slash).
+- If a CSV `stakedAmount` exceeds the on-chain `stakedAmount`, the script errors.
+
+### Outputs
+
+`safe-tx.json` and `safe-tx.summary.txt` in `--out-dir`, following the same patterns as other write commands.
+
+---
+
 ## Reference
 
 ### Anchor Date and Offset Month Math
@@ -347,8 +442,8 @@ Operational implications:
 
 If the wallet has staked tokens, `slash` reverts with `AmountStaked`. Recovery is two steps:
 
-1. `slashStake(wallet_, stakedAmount, to_)` — requires `STAKE_ROLE`. Reduces `stakedAmount` to zero.
-2. `slash(wallet_, to_)` — now succeeds. Transfers remaining balance and deletes the lock record.
+1. `slashStake(wallet_, stakedAmount, to_)` — requires `STAKE_ROLE`. Reduces `stakedAmount` to zero. Use `lock-slash-stake` to generate the Safe transaction.
+2. `slash(wallet_, to_)` — now succeeds. Transfers remaining balance and deletes the lock record. Use `lock-slash` to generate the Safe transaction.
 
 On mainnet, the admin Safe holds both `SLASH_ROLE` and `STAKE_ROLE`.
 
