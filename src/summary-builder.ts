@@ -13,6 +13,12 @@ export interface SummaryTransaction {
   readonly calldataHash: string;
 }
 
+export interface WalletWarning {
+  readonly address: string;
+  readonly amountHuman: string;
+  readonly pctOfSupply: string;
+}
+
 export interface SummaryParams {
   readonly transactionId: string;
   readonly operation: Operation;
@@ -31,6 +37,9 @@ export interface SummaryParams {
   readonly jsonSha256: string;
   readonly batchFingerprint: string;
   readonly amountWeiCheck: 'pass' | 'N/A';
+  readonly maxTotalPct?: number | undefined;
+  readonly warnWalletPct?: number | undefined;
+  readonly walletWarnings?: readonly WalletWarning[] | undefined;
 }
 
 export function renderSummary(params: SummaryParams): string {
@@ -60,8 +69,9 @@ export function renderSummary(params: SummaryParams): string {
   lines.push('TRANSACTIONS');
 
   params.transactions.forEach((tx, index) => {
+    const totalOMA = formatUnits(tx.totalWei, params.decimals);
     lines.push(
-      `- tx ${index + 1}: method=${tx.method} cliffUnix=${tx.cliffUnix.toString()} cliffUtc=${formatUtcSeconds(tx.cliffUnix)} lockEndUnix=${tx.lockEndUnix.toString()} lockEndUtc=${formatUtcSeconds(tx.lockEndUnix)} wallets=${tx.wallets.toString()} totalWei=${tx.totalWei.toString()} firstWallet=${tx.firstWallet} lastWallet=${tx.lastWallet} calldataHash=${tx.calldataHash}`,
+      `- tx ${index + 1}: method=${tx.method} cliffUnix=${tx.cliffUnix.toString()} cliffUtc=${formatUtcSeconds(tx.cliffUnix)} lockEndUnix=${tx.lockEndUnix.toString()} lockEndUtc=${formatUtcSeconds(tx.lockEndUnix)} wallets=${tx.wallets.toString()} totalOMA=${totalOMA} totalWei=${tx.totalWei.toString()} firstWallet=${tx.firstWallet} lastWallet=${tx.lastWallet} calldataHash=${tx.calldataHash}`,
     );
   });
 
@@ -71,6 +81,31 @@ export function renderSummary(params: SummaryParams): string {
   lines.push('- duplicate addresses: pass');
   lines.push('- offset resolution: pass');
   lines.push('- timestamp format: pass');
+
+  lines.push('');
+  lines.push('WARNINGS');
+
+  const DEFAULT_MAX_TOTAL_PCT = 10;
+  const DEFAULT_WARN_WALLET_PCT = 1;
+  const warnings: string[] = [];
+
+  if (params.maxTotalPct !== undefined && params.maxTotalPct !== DEFAULT_MAX_TOTAL_PCT) {
+    warnings.push(`- WARNING: --max-total-pct set to ${params.maxTotalPct} (default: ${DEFAULT_MAX_TOTAL_PCT}). Verify this override is authorized.`);
+  }
+  if (params.warnWalletPct !== undefined && params.warnWalletPct !== DEFAULT_WARN_WALLET_PCT) {
+    warnings.push(`- WARNING: --warn-wallet-pct set to ${params.warnWalletPct} (default: ${DEFAULT_WARN_WALLET_PCT}). Verify this override is authorized.`);
+  }
+  if (params.walletWarnings) {
+    for (const w of params.walletWarnings) {
+      warnings.push(`- ${w.address}: allocated ${w.amountHuman} OMA (${w.pctOfSupply}% of total supply)`);
+    }
+  }
+
+  if (warnings.length === 0) {
+    lines.push('- None');
+  } else {
+    lines.push(...warnings);
+  }
 
   return `${lines.join('\n')}\n`;
 }

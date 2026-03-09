@@ -1,6 +1,9 @@
-import { getAddress } from 'ethers';
+import { getAddress, parseUnits } from 'ethers';
 
 export type NetworkName = 'sepolia' | 'mainnet';
+
+/** Total OMA supply: 333,333,333 OMA. Used for threshold calculations. */
+export const OMA_TOTAL_SUPPLY_WEI = parseUnits('333333333', 18);
 
 export interface NetworkConfig {
   readonly name: NetworkName;

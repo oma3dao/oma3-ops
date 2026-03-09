@@ -10,7 +10,7 @@ import {
   getRequiredOption,
   parseCliArgs,
 } from './cli-utils.js';
-import { getNetworkConfig, type NetworkName } from './config.js';
+import { getNetworkConfig, OMA_TOTAL_SUPPLY_WEI, type NetworkName } from './config.js';
 import { parseCsvFile, requireHeaders } from './csv-utils.js';
 import { addUtcCalendarMonths, formatAnchorUtc, parseAnchorDateUtc, unixSeconds } from './date-utils.js';
 import {
@@ -25,7 +25,8 @@ import {
   type Operation,
   type SafeTransaction,
 } from './safe-builder.js';
-import { renderSummary, type SummaryTransaction } from './summary-builder.js';
+import { renderSummary, type SummaryTransaction, type WalletWarning } from './summary-builder.js';
+import { getFixturePath, loadFixtures, saveFixtures, type KnownLockEntry } from './known-locks.js';
 
 const UINT96_MAX = (1n << 96n) - 1n;
 const UINT40_MAX = (1n << 40n) - 1n;
@@ -315,6 +316,8 @@ export async function runLockCommand(operation: Operation, argv: string[]): Prom
     'oma-token',
     'allow-address-override',
     'require-amount-wei',
+    'max-total-pct',
+    'warn-wallet-pct',
   ]);
   assertNoUnknownOptions(parsed.options, allowed);
 
@@ -357,6 +360,40 @@ export async function runLockCommand(operation: Operation, argv: string[]): Prom
     requireAmountWei,
   });
 
+  const totalWei = rows.reduce((acc, row) => acc + row.amountWei, 0n);
+
+  // Threshold checks (addLocks only)
+  let maxTotalPct: number | undefined;
+  let warnWalletPct: number | undefined;
+  const walletWarnings: WalletWarning[] = [];
+
+  if (operation === 'addLocks') {
+    maxTotalPct = getPositiveIntOption(parsed.options, 'max-total-pct', 10);
+    warnWalletPct = getPositiveIntOption(parsed.options, 'warn-wallet-pct', 1);
+
+    // Hard error: total exceeds --max-total-pct of supply
+    const maxTotalWei = OMA_TOTAL_SUPPLY_WEI * BigInt(maxTotalPct) / 100n;
+    if (totalWei > maxTotalWei) {
+      const totalHuman = formatUnits(totalWei, chainContext.decimals);
+      const maxHuman = formatUnits(maxTotalWei, chainContext.decimals);
+      throw new Error(
+        `Total OMA (${totalHuman}) exceeds --max-total-pct ${maxTotalPct}% of total supply (${maxHuman} OMA). No output files produced.`,
+      );
+    }
+
+    // Per-wallet warnings
+    const warnWalletWei = OMA_TOTAL_SUPPLY_WEI * BigInt(warnWalletPct) / 100n;
+    for (const row of rows) {
+      if (row.amountWei > warnWalletWei) {
+        const amountHuman = formatUnits(row.amountWei, chainContext.decimals);
+        const pctNum = Number(row.amountWei * 10000n / OMA_TOTAL_SUPPLY_WEI) / 100;
+        const pctOfSupply = pctNum.toFixed(2);
+        walletWarnings.push({ address: row.address, amountHuman, pctOfSupply });
+        console.log(`WARNING: ${row.address} allocated ${amountHuman} OMA (${pctOfSupply}% of total supply)`);
+      }
+    }
+  }
+
   const chunks = planChunks({
     operation,
     rows,
@@ -389,7 +426,6 @@ export async function runLockCommand(operation: Operation, argv: string[]): Prom
     calldataHash: chunk.calldataHash,
   }));
 
-  const totalWei = rows.reduce((acc, row) => acc + row.amountWei, 0n);
   const transactionId = `${operation}-${short.replace(/^0x/, '')}`;
 
   const summary = renderSummary({
@@ -410,6 +446,9 @@ export async function runLockCommand(operation: Operation, argv: string[]): Prom
     jsonSha256,
     batchFingerprint: fingerprint,
     amountWeiCheck,
+    maxTotalPct,
+    warnWalletPct,
+    walletWarnings: walletWarnings.length > 0 ? walletWarnings : undefined,
   });
 
   mkdirSync(outDir, { recursive: true });
@@ -419,6 +458,33 @@ export async function runLockCommand(operation: Operation, argv: string[]): Prom
 
   writeFileSync(safeJsonPath, safeJson, 'utf8');
   writeFileSync(summaryPath, summary, 'utf8');
+
+  // Update known-locks fixture
+  const fixturePath = getFixturePath(networkName);
+  const existingEntries = loadFixtures(fixturePath);
+  const sourceTag = `${operation === 'addLocks' ? 'addLocks' : 'updateLocks'}:${short.replace(/^0x/, '')}`;
+
+  const newEntries: KnownLockEntry[] = rows.map((row) => ({
+    address: row.address,
+    amount: formatUnits(row.amountWei, chainContext.decimals),
+    cliffDate: row.cliffDate,
+    lockEndDate: row.lockEndDate,
+    source: sourceTag,
+  }));
+
+  let updatedEntries: KnownLockEntry[];
+  if (operation === 'addLocks') {
+    updatedEntries = [...newEntries, ...existingEntries];
+  } else {
+    // updateLocks: remove existing entries for updated wallets, then prepend
+    const updatedAddresses = new Set(rows.map((r) => r.addressLower));
+    const filtered = existingEntries.filter(
+      (e) => !updatedAddresses.has(e.address.toLowerCase()),
+    );
+    updatedEntries = [...newEntries, ...filtered];
+  }
+
+  saveFixtures(fixturePath, updatedEntries);
 
   console.log(`Generated ${operation} batch.`);
   console.log(`Network: ${networkName} (${chainContext.network.chainId.toString()})`);

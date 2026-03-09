@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { formatUnits, getAddress, Interface, JsonRpcProvider } from 'ethers';
 import {
   assertNoUnknownOptions,
@@ -9,9 +6,7 @@ import {
   parseCliArgs,
 } from './cli-utils.js';
 import { getNetworkConfig, getRpcUrl, type NetworkName } from './config.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { getFixturePath, loadFixtures, saveFixtures, type KnownLockEntry } from './known-locks.js';
 
 const LOCK_ABI = [
   'function getLock(address wallet_) view returns (tuple(uint40 timestamp, uint40 cliffDate, uint40 lockEndDate, uint96 amount, uint96 claimedAmount, uint96 stakedAmount, uint96 slashedAmount) lock, uint96 unlockedAmount)',
@@ -22,33 +17,6 @@ const TOKEN_ABI = ['function decimals() view returns (uint8)'] as const;
 
 const LOCK_INTERFACE = new Interface(LOCK_ABI);
 const TOKEN_INTERFACE = new Interface(TOKEN_ABI);
-
-interface FixtureEntry {
-  address: string;
-  amount: string;
-  cliffDate: number;
-  lockEndDate: number;
-  source: string;
-}
-
-function getFixturePath(networkName: string): string {
-  // Resolve relative to project root (src/../data/)
-  const projectRoot = resolve(__dirname, '..');
-  return resolve(projectRoot, 'data', `${networkName}-known-locks.json`);
-}
-
-function loadFixtures(path: string): FixtureEntry[] {
-  const raw = readFileSync(path, 'utf8');
-  const parsed: unknown = JSON.parse(raw);
-  if (!Array.isArray(parsed)) {
-    throw new Error(`Fixture file is not a JSON array: ${path}`);
-  }
-  return parsed as FixtureEntry[];
-}
-
-function saveFixtures(path: string, entries: FixtureEntry[]): void {
-  writeFileSync(path, JSON.stringify(entries, null, 2) + '\n', 'utf8');
-}
 
 interface OnChainLock {
   hasLock: boolean;
@@ -126,7 +94,7 @@ async function main(): Promise<void> {
   }
 
   const fixturePath = getFixturePath(network.name);
-  let entries: FixtureEntry[];
+  let entries: KnownLockEntry[];
   try {
     entries = loadFixtures(fixturePath);
   } catch (err: unknown) {
@@ -167,7 +135,7 @@ async function main(): Promise<void> {
   let okCount = 0;
   let mismatchCount = 0;
   let missingCount = 0;
-  const kept: FixtureEntry[] = [];
+  const kept: KnownLockEntry[] = [];
 
   for (const entry of entries) {
     const onChain = await queryOnChain(provider, network.omaLock, entry.address, decimals);
