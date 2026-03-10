@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { Interface } from 'ethers';
 import {
   buildSafeTransaction,
+  buildSlashTransaction,
+  buildSlashStakeTransaction,
   buildSafeBatchFile,
   type ChunkPayload,
 } from '../../src/safe-builder.js';
@@ -16,6 +18,14 @@ const ADD_LOCKS_INTERFACE = new Interface([
 const UPDATE_LOCKS_INTERFACE = new Interface([
   'function updateLocks(address[] wallets_, uint40 cliffDate_, uint40 lockEndDate_)',
 ]);
+const SLASH_INTERFACE = new Interface([
+  'function slash(address wallet_, address to_)',
+]);
+const SLASH_STAKE_INTERFACE = new Interface([
+  'function slashStake(address wallet_, uint96 amount_, address to_)',
+]);
+
+const DESTINATION = '0x000000000000000000000000000000000000dEaD';
 
 describe('buildSafeTransaction - addLocks', () => {
   const payload: ChunkPayload = {
@@ -251,5 +261,131 @@ describe('buildSafeBatchFile', () => {
 
   it('transaction value is "0"', () => {
     expect(baseTx.value).toBe('0');
+  });
+});
+
+describe('buildSlashTransaction', () => {
+  const payload = {
+    lockContract: LOCK_CONTRACT,
+    wallet: WALLET_1,
+    to: DESTINATION,
+  };
+
+  it('correct function selector', () => {
+    const tx = buildSlashTransaction(payload);
+    const expected = SLASH_INTERFACE.getFunction('slash')!.selector;
+    expect(tx.data.startsWith(expected)).toBe(true);
+  });
+
+  it('wallet and to in calldata', () => {
+    const tx = buildSlashTransaction(payload);
+    const decoded = SLASH_INTERFACE.decodeFunctionData('slash', tx.data);
+    expect((decoded[0] as string).toLowerCase()).toBe(WALLET_1.toLowerCase());
+    expect((decoded[1] as string).toLowerCase()).toBe(DESTINATION.toLowerCase());
+  });
+
+  it('contractInputsValues contains wallet_ and to_', () => {
+    const tx = buildSlashTransaction(payload);
+    expect(tx.contractInputsValues.wallet_!.toLowerCase()).toBe(WALLET_1.toLowerCase());
+    expect(tx.contractInputsValues.to_!.toLowerCase()).toBe(DESTINATION.toLowerCase());
+  });
+
+  it('contractMethod.inputs match slash schema', () => {
+    const tx = buildSlashTransaction(payload);
+    expect(tx.contractMethod.name).toBe('slash');
+    expect(tx.contractMethod.payable).toBe(false);
+    expect(tx.contractMethod.inputs).toEqual([
+      { internalType: 'address', name: 'wallet_', type: 'address' },
+      { internalType: 'address', name: 'to_', type: 'address' },
+    ]);
+  });
+
+  it('to is lock contract address', () => {
+    const tx = buildSlashTransaction(payload);
+    expect(tx.to.toLowerCase()).toBe(LOCK_CONTRACT.toLowerCase());
+  });
+
+  it('value is "0"', () => {
+    const tx = buildSlashTransaction(payload);
+    expect(tx.value).toBe('0');
+  });
+});
+
+describe('buildSlashStakeTransaction', () => {
+  const payload = {
+    lockContract: LOCK_CONTRACT,
+    wallet: WALLET_1,
+    amountWei: 5000000000000000000n,
+    to: DESTINATION,
+  };
+
+  it('correct function selector', () => {
+    const tx = buildSlashStakeTransaction(payload);
+    const expected = SLASH_STAKE_INTERFACE.getFunction('slashStake')!.selector;
+    expect(tx.data.startsWith(expected)).toBe(true);
+  });
+
+  it('wallet, amount, and to in calldata', () => {
+    const tx = buildSlashStakeTransaction(payload);
+    const decoded = SLASH_STAKE_INTERFACE.decodeFunctionData('slashStake', tx.data);
+    expect((decoded[0] as string).toLowerCase()).toBe(WALLET_1.toLowerCase());
+    expect(decoded[1]).toBe(5000000000000000000n);
+    expect((decoded[2] as string).toLowerCase()).toBe(DESTINATION.toLowerCase());
+  });
+
+  it('contractInputsValues contains wallet_, amount_, to_', () => {
+    const tx = buildSlashStakeTransaction(payload);
+    expect(tx.contractInputsValues.wallet_!.toLowerCase()).toBe(WALLET_1.toLowerCase());
+    expect(tx.contractInputsValues.amount_).toBe('5000000000000000000');
+    expect(tx.contractInputsValues.to_!.toLowerCase()).toBe(DESTINATION.toLowerCase());
+  });
+
+  it('contractMethod.inputs match slashStake schema', () => {
+    const tx = buildSlashStakeTransaction(payload);
+    expect(tx.contractMethod.name).toBe('slashStake');
+    expect(tx.contractMethod.payable).toBe(false);
+    expect(tx.contractMethod.inputs).toEqual([
+      { internalType: 'address', name: 'wallet_', type: 'address' },
+      { internalType: 'uint96', name: 'amount_', type: 'uint96' },
+      { internalType: 'address', name: 'to_', type: 'address' },
+    ]);
+  });
+
+  it('to is lock contract address', () => {
+    const tx = buildSlashStakeTransaction(payload);
+    expect(tx.to.toLowerCase()).toBe(LOCK_CONTRACT.toLowerCase());
+  });
+
+  it('value is "0"', () => {
+    const tx = buildSlashStakeTransaction(payload);
+    expect(tx.value).toBe('0');
+  });
+});
+
+describe('buildSafeBatchFile - slash operations', () => {
+  const slashTx = buildSlashTransaction({
+    lockContract: LOCK_CONTRACT,
+    wallet: WALLET_1,
+    to: DESTINATION,
+  });
+
+  it('meta.name for slash', () => {
+    const batch = buildSafeBatchFile({
+      chainId: 11155111n,
+      operation: 'slash',
+      shortFingerprint: '0x9f2c1e4b7a21',
+      transactions: [slashTx],
+    });
+    expect(batch.meta.name).toBe('OMA3 lock-slash 9f2c1e4b7a21');
+  });
+
+  it('meta.name for slashStake', () => {
+    const batch = buildSafeBatchFile({
+      chainId: 11155111n,
+      operation: 'slashStake',
+      shortFingerprint: '0x9f2c1e4b7a21',
+      transactions: [slashTx],
+    });
+    expect(batch.meta.name).toBe('OMA3 lock-slash-stake 9f2c1e4b7a21');
   });
 });

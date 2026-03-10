@@ -147,7 +147,10 @@ describe('renderSummary', () => {
     const validationStart = lines.findIndex((l) => l === 'VALIDATION');
     expect(validationStart).toBeGreaterThanOrEqual(0);
 
-    const validationLines = lines.slice(validationStart + 1).filter((l) => l.startsWith('- '));
+    // Only check lines between VALIDATION and WARNINGS sections
+    const warningsStart = lines.findIndex((l, i) => i > validationStart && l === 'WARNINGS');
+    const sectionEnd = warningsStart > 0 ? warningsStart : lines.length;
+    const validationLines = lines.slice(validationStart + 1, sectionEnd).filter((l) => l.startsWith('- '));
     const expectedOrder = [
       'amountWei cross-check:',
       'duplicate addresses:',
@@ -184,5 +187,66 @@ describe('renderSummary', () => {
       }),
     );
     expect(result).toContain('Total OMA (human): 1.0');
+  });
+
+  it('WARNINGS section present', () => {
+    const result = renderSummary(makeParams());
+    expect(result).toContain('WARNINGS');
+  });
+
+  it('WARNINGS section shows "- None" when no warnings', () => {
+    const result = renderSummary(makeParams());
+    const lines = result.split('\n');
+    const warningsStart = lines.findIndex((l) => l === 'WARNINGS');
+    expect(warningsStart).toBeGreaterThanOrEqual(0);
+    const warningLines = lines.slice(warningsStart + 1).filter((l) => l.startsWith('- '));
+    expect(warningLines).toHaveLength(1);
+    expect(warningLines[0]).toBe('- None');
+  });
+
+  it('WARNINGS section shows --max-total-pct override', () => {
+    const result = renderSummary(makeParams({ maxTotalPct: 25 }));
+    expect(result).toContain('WARNING: --max-total-pct set to 25');
+    expect(result).toContain('default: 10');
+  });
+
+  it('WARNINGS section shows --warn-wallet-pct override', () => {
+    const result = renderSummary(makeParams({ warnWalletPct: 5 }));
+    expect(result).toContain('WARNING: --warn-wallet-pct set to 5');
+    expect(result).toContain('default: 1');
+  });
+
+  it('WARNINGS section does not warn when using default thresholds', () => {
+    const result = renderSummary(makeParams({ maxTotalPct: 10, warnWalletPct: 1 }));
+    const lines = result.split('\n');
+    const warningsStart = lines.findIndex((l) => l === 'WARNINGS');
+    const warningLines = lines.slice(warningsStart + 1).filter((l) => l.startsWith('- '));
+    expect(warningLines).toHaveLength(1);
+    expect(warningLines[0]).toBe('- None');
+  });
+
+  it('WARNINGS section shows per-wallet warnings', () => {
+    const result = renderSummary(makeParams({
+      walletWarnings: [
+        { address: WALLET_1, amountHuman: '5000000.0', pctOfSupply: '1.50' },
+      ],
+    }));
+    expect(result).toContain(`${WALLET_1}: allocated 5000000.0 OMA (1.50% of total supply)`);
+    expect(result).not.toContain('- None');
+  });
+
+  it('WARNINGS section shows both threshold overrides and wallet warnings', () => {
+    const result = renderSummary(makeParams({
+      maxTotalPct: 20,
+      warnWalletPct: 0,
+      walletWarnings: [
+        { address: WALLET_1, amountHuman: '5000000.0', pctOfSupply: '1.50' },
+        { address: WALLET_2, amountHuman: '3000000.0', pctOfSupply: '0.90' },
+      ],
+    }));
+    expect(result).toContain('WARNING: --max-total-pct set to 20');
+    expect(result).toContain(`${WALLET_1}: allocated 5000000.0 OMA`);
+    expect(result).toContain(`${WALLET_2}: allocated 3000000.0 OMA`);
+    expect(result).not.toContain('- None');
   });
 });
