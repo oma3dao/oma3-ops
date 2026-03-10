@@ -17,6 +17,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest --run",
+    "test:watch": "vitest",
     "lock-add-locks": "node --env-file=.env.local dist/lock-add-locks.js",
     "lock-update-locks": "node --env-file=.env.local dist/lock-update-locks.js",
     "lock-slash": "node --env-file=.env.local dist/lock-slash.js",
@@ -33,6 +36,9 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "typescript": "^5.7.2"
+    "@vitest/coverage-v8": "^4.0.18",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.18"
   }
 }

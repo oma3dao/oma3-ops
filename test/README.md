@@ -2,9 +2,28 @@
 
 ## Running Tests
 
-<!-- Test engineer: fill this section out after implementation -->
+```bash
+# Install dependencies
+npm install
 
-_TODO: Document how to install dependencies, run unit tests, run integration tests, and any environment variables required._
+# Run all tests (unit only; integration tests are skipped without RPC)
+npm test
+
+# Run unit tests only
+npx vitest --run test/unit/
+
+# Run integration tests (requires Sepolia RPC endpoint)
+OMA3_OPS_RPC_URL_SEPOLIA=https://your-sepolia-rpc-url npx vitest --run test/integration/
+
+# Watch mode
+npm run test:watch
+```
+
+### Environment Variables
+
+| Variable | Required For | Description |
+|----------|-------------|-------------|
+| `OMA3_OPS_RPC_URL_SEPOLIA` | Integration tests | Sepolia RPC endpoint. Integration tests are **skipped** (not failed) when absent. |
 
 ---
 
