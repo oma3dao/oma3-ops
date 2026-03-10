@@ -116,7 +116,9 @@ async function queryLock(
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('NoLock')) {
+    // ethers v6 surfaces custom errors as hex selectors in the data field.
+    // NoLock(address) selector = 0xd8216464
+    if (message.includes('NoLock') || message.includes('0xd8216464')) {
       return {
         address,
         hasLock: false,

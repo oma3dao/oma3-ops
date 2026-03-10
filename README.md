@@ -1,267 +1,531 @@
 # oma3-ops
 
-Deterministic operational tooling for OMA3 governance transactions.  
-This repo generates Safe-compatible transaction files and human-readable review artifacts for OMA lock operations.
+Command-line tools for OMA3 representatives to interact with on-chain contracts (currently the OMALock contract). OMA3 uses Safe (Gnosis Safe) multisig for all admin operations, so these scripts serve as the front end for constructing Safe-compatible transactions and producing verification artifacts for reviewers.
 
-## Scope (V1)
+## How It Works
 
-Phase 1 supports lock contract operations only:
+1. A proposer prepares a CSV of wallet addresses and lock parameters.
+2. The proposer runs a script (`lock-add-locks` or `lock-update-locks`) to generate a Safe-compatible transaction JSON file and a human-readable summary file.
+3. The proposer imports the JSON into Safe Transaction Builder and verifies the calldata hashes.
+4. The proposer distributes the summary file to reviewers/signers via end-to-end encrypted communications.
+5. Reviewers open the pending transaction in Safe, compare the decoded details against the summary file, and approve.
+6. Once the signing threshold is met, the transaction is executed.
 
-- `addLocks`
-- `updateLocks`
-- `getLock` (read-only status query)
-
-Not in V1:
-
-- `slash`
-- any private-key signing
-- direct transaction submission
-- frontend UI
-
-## Design Goals
-
-- No private keys in scripts
-- Safe is the only execution layer
-- Deterministic outputs from the same inputs
-- Human-readable summaries for reviewer verification
-- Fail-closed validation
+No private keys are used by these scripts. No transactions are signed or submitted. Safe and hardware wallets are the only execution layer.
 
 ## Networks and Contracts
 
-Defaults are sourced from `token-ft-eth/README.md` in this workspace.
+### Sepolia (testnet)
 
-### Sepolia
-
-- OMA: `0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf`
-- OMA Lock: `0x2f38D6cCB480d5C7e68d11b5a02f2c2451543F58`
+- OMA Token: `0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf`
+- OMALock: `0x2f38D6cCB480d5C7e68d11b5a02f2c2451543F58`
 
 ### Ethereum Mainnet
 
-- OMA: `0x36a72D42468eAffd5990Ddbd5056A0eC615B0bd4`
-- OMA Lock: `0x249d2cc7B23546c3dE8655c03263466B77344ee7`
+- OMA Token: `0x36a72D42468eAffd5990Ddbd5056A0eC615B0bd4`
+- OMALock: `0x249d2cc7B23546c3dE8655c03263466B77344ee7`
 
-CLI may allow overrides, but defaults must match these values.
+CLI defaults must match these values. The `--lock-contract` and `--oma-token` flags allow overrides when `--allow-address-override` is also provided.
 
-## Command Model
+## Environment Setup
 
-One command per operation, with shared core modules:
+Scripts need an RPC endpoint for read-only on-chain calls (chain ID verification, token decimals, `getLock` queries). No transactions are signed or submitted.
 
-- `lock-add-locks`
-- `lock-update-locks`
-- `lock-status` (read-only)
-- `hash` (utility)
+### RPC Configuration
 
-Shared modules handle:
+Copy `.env.example` to `.env.local` and fill in your thirdweb Client ID:
 
-- CSV ingestion and normalization
-- validation
-- ABI encoding
-- deterministic grouping/chunking
-- Safe JSON generation
-- summary generation
-- hash generation
+```bash
+cp .env.example .env.local
+```
 
-## Input CSV Specification
+`.env.local` contents:
 
-CSV is required to include a header row.  
-Scripts must parse by header names (not by column position) and reject missing required fields.
+```
+OMA3_OPS_RPC_URL_SEPOLIA=https://11155111.rpc.thirdweb.com/<CLIENT_ID>
+OMA3_OPS_RPC_URL_MAINNET=https://1.rpc.thirdweb.com/<CLIENT_ID>
+```
 
-### Required Fields (V1)
+The env file is loaded automatically via Node 20's `--env-file` flag when using the npm scripts (e.g. `npm run lock-status -- --wallet 0x...`). If running the compiled binaries directly, either export the env vars manually or use `node --env-file=.env.local dist/<command>.js`.
 
-- `address`
-- `amount`
+### RPC URL Resolution Order
 
-### Time Fields
+1. `--rpc-url` CLI flag (explicit override)
+2. `OMA3_OPS_RPC_URL_SEPOLIA` or `OMA3_OPS_RPC_URL_MAINNET` (network-specific env var)
+3. `OMA3_OPS_RPC_URL` (generic fallback env var)
 
-Required per row:
+---
 
-- `cliffOffsetMonths`
-- `lockEndOffsetMonths`
+## Checking Lock Status (`lock-status`)
 
-Required CLI input:
+Read-only command that queries `getLock()` on-chain for one or more wallets and prints their lock status. This is the simplest way to inspect what's on-chain before generating any transactions.
 
-- `--anchor-date-utc <ISO-8601 UTC datetime>`
+```bash
+# Single or multiple wallets
+lock-status --network mainnet --wallet 0xabc... 0xdef...
 
-Cliff and lock-end are expressed as calendar-month offsets from a shared anchor date, which typically corresponds to a legal or commercial event (e.g. investment date, grant date). The script resolves offsets to absolute timestamps before grouping/encoding, handling month-end clamping deterministically.
+# Batch from CSV (requires `address` column header)
+lock-status --network sepolia --csv wallets.csv
 
-Each run supports exactly one anchor date. If wallets have different investment/grant dates requiring different anchors, they must be processed in separate runs.
+# Export to JSON file
+lock-status --network mainnet --wallet 0xabc... --out status.json
+```
 
-### Optional Fields (V1)
+Exactly one of `--wallet` or `--csv` must be provided. `--wallet` accepts one or more space-separated addresses.
 
-- `amountWei`
+### Parameters
 
-`amountWei` is an optional cross-check column only (not a second source of truth).  
-Canonical amount input remains `amount` in human OMA units.
+| Flag        | Required | Default   | Description                                                    |
+|-------------|----------|-----------|----------------------------------------------------------------|
+| `--network` | no       | `sepolia` | `mainnet` or `sepolia`                                         |
+| `--wallet`  | one of   | —         | One or more wallet addresses                                   |
+| `--csv`     | one of   | —         | CSV file with `address` column                                 |
+| `--out`     | no       | —         | Write JSON output to file (otherwise prints table to terminal) |
+| `--rpc-url` | no       | —         | Override RPC endpoint                                          |
 
-If `amountWei` is present on a row, then:
+### Output Fields (per wallet)
 
-- `parseUnits(amount, tokenDecimals)` must equal `amountWei`
-- any mismatch fails the run
+| Field            | Description                                                                                      |
+|------------------|--------------------------------------------------------------------------------------------------|
+| `address`        | Wallet address (checksum)                                                                        |
+| `hasLock`        | Whether a lock record exists                                                                     |
+| `timestamp`      | Lock creation timestamp (unix + UTC)                                                             |
+| `cliffDate`      | Cliff date — vesting starts here (unix + UTC)                                                    |
+| `lockEndDate`    | Lock end date — 100% vested here (unix + UTC)                                                    |
+| `amount`         | Total locked amount (human + wei)                                                                |
+| `claimedAmount`  | Tokens already withdrawn via `claim()` (human + wei)                                             |
+| `stakedAmount`   | Tokens currently staked (human + wei)                                                            |
+| `slashedAmount`  | Tokens slashed by admin (human + wei)                                                            |
+| `unlockedAmount` | Total vested so far (human + wei). This is cumulative and includes tokens already claimed.       |
+| `claimable`      | Available to withdraw right now (human + wei). See formula below.                                |
+| `vestingProgress`| Percentage of total amount vested, e.g. `45.2%`                                                  |
 
-CLI may support `--require-amount-wei` to require this column on all rows.
+How these relate:
 
-### Header Aliases (Deferred to V2)
+- `unlockedAmount` is the total that has vested to date (linear between cliff and lockEnd). Before the cliff it is 0; after lockEnd it equals `amount`.
+- `claimedAmount` is the portion of `unlockedAmount` already withdrawn.
+- `claimable` is what you can withdraw right now: `min(unlockedAmount - claimedAmount, amount - claimedAmount - stakedAmount - slashedAmount)`, floored at 0. The second term accounts for tokens that are staked or slashed and therefore not available even if vested.
+- When there is no staking or slashing: `unlockedAmount ≈ claimedAmount + claimable`.
 
-Header alias support (e.g. `wallet` -> `address`, `allocation` -> `amount`) is deferred to V2 to reduce ambiguity in the initial implementation. V1 requires exact canonical header names.
+Wallets without a lock record are reported with `hasLock: false` and all other fields as `N/A` (no error).
 
-Unknown extra columns are ignored.
+---
 
-### Value Formats
+## Generating Lock Write Transactions (`lock-add-locks` / `lock-update-locks`)
 
-- `address`: EVM checksum or lowercase hex address
-- `amount`: decimal human units (OMA, not wei), e.g. `1000`, `2500.5`
-- `amountWei` (optional): base units as integer string, e.g. `1000000000000000000`
-- `cliffOffsetMonths` / `lockEndOffsetMonths`: integer calendar-month offsets from `anchorDateUtc`
+Both commands follow the same flow: prepare a CSV, run the command, review the outputs, import into Safe, verify, distribute to reviewers, and execute.
 
-CSV does not carry types; every field is parsed as text and converted by the script.
-The parser must reject non-integer offset values.
+- `lock-add-locks` creates new locks. It encodes wallet addresses, amounts, cliff dates, and lock end dates into `addLocks()` calldata.
+- `lock-update-locks` modifies dates on existing locks. It encodes wallet addresses, cliff dates, and lock end dates into `updateLocks()` calldata. Amounts are not encoded into the transaction — the `amount` CSV column is required but exists only so reviewers can cross-reference that the correct wallets are being updated. The on-chain locked amount is not changed by `updateLocks`.
 
-ISO-8601 datetime values (used for `--anchor-date-utc`) must use the `Z` (Zulu) UTC suffix exclusively. Numeric timezone offsets such as `+00:00` or `+05:30` must be rejected to eliminate timezone ambiguity.
+### Step 1: Prepare the CSV
 
-### Offset Month Math (Deterministic)
+Create a CSV file with a header row. The scripts parse by header name, not column position.
 
-- `anchorDateUtc` must be explicit and immutable for the run.
-- month addition uses UTC calendar months.
-- if target month has fewer days, clamp to the month's last day.
-- preserve time-of-day from anchor.
+Required columns:
 
-Example: `anchorDateUtc=2025-01-31T00:00:00Z`, `+1 month` => `2025-02-28T00:00:00Z`.
+| Column               | Format                                    | Description                                                |
+|----------------------|-------------------------------------------|------------------------------------------------------------|
+| `address`            | EVM checksum or lowercase hex             | Wallet address                                             |
+| `amount`             | Decimal human units (e.g. `1000`, `2500.5`) | OMA amount (not wei)                                     |
+| `cliffOffsetMonths`  | Integer >= 0                              | Calendar-month offset from anchor date to cliff            |
+| `lockEndOffsetMonths`| Integer > `cliffOffsetMonths`             | Calendar-month offset from anchor date to lock end         |
 
-## Operation Semantics
+- achor date is described in the Parameters section below
+- `lockEndOffsetMonths` must be strictly greater than `cliffOffsetMonths`. The OMALock contract requires `lockEndDate > cliffDate`; equal values cause a revert.
+
+Optional column:
+
+| Column      | Format                                        | Description                                                                          |
+|-------------|-----------------------------------------------|--------------------------------------------------------------------------------------|
+| `amountWei` | Integer string (e.g. `1000000000000000000`)   | Cross-check only. Must equal `parseUnits(amount, 18)`. Any mismatch fails the run.  |
+
+Example:
+
+```csv
+address,amount,cliffOffsetMonths,lockEndOffsetMonths
+0x1234567890abcdef1234567890abcdef12345678,100000,12,21
+0xabcdefabcdefabcdefabcdefabcdefabcdefabcd,250000,12,48
+```
+
+Unknown extra columns are ignored. V1 requires exact canonical header names (header aliases deferred to V2).
+
+Before running the command, create a run archive folder and place the CSV in it. This keeps the input CSV alongside the generated output files for a complete audit trail. See the Run Archives section below for the naming convention.
+
+### Step 2: Run the Command
+
+```bash
+# Add new locks
+lock-add-locks \
+  --network mainnet \
+  --anchor-date-utc 2025-01-31T00:00:00Z \
+  --csv data/runs/mainnet/2025-03-10-001-addLocks/input.csv \
+  --out-dir data/runs/mainnet/2025-03-10-001-addLocks
+
+# Update existing locks
+lock-update-locks \
+  --network mainnet \
+  --anchor-date-utc 2025-01-31T00:00:00Z \
+  --csv data/runs/mainnet/2025-03-10-002-updateLocks/input.csv \
+  --out-dir data/runs/mainnet/2025-03-10-002-updateLocks
+```
+
+### Parameters
+
+| Flag                   | Required | Default   | Description                                                                                        |
+|------------------------|----------|-----------|----------------------------------------------------------------------------------------------------|
+| `--network`            | no       | `sepolia` | `mainnet` or `sepolia`                                                                             |
+| `--anchor-date-utc`    | yes      | —         | ISO-8601 UTC datetime with `Z` suffix. Numeric timezone offsets (e.g. `+00:00`) are rejected.      |
+| `--csv`                | yes      | —         | Path to input CSV                                                                                  |
+| `--out-dir`            | yes      | —         | Directory for output files                                                                         |
+| `--max-wallets-per-tx` | no       | `200`     | Max wallets per transaction chunk                                                                  |
+| `--max-total-pct`      | no       | `10`      | Hard error if total OMA exceeds this % of total supply (333,333,333 OMA). Positive integer. `lock-add-locks` only.   |
+| `--warn-wallet-pct`    | no       | `1`       | Warning if any wallet exceeds this % of total supply. Positive integer. `lock-add-locks` only.                       |
+| `--require-amount-wei` | no       | `false`   | Require `amountWei` column on all rows                                                             |
+| `--rpc-url`            | no       | —         | Override RPC endpoint                                                                              |
+
+The anchor date is the legal/commercial reference point (e.g. investment date, grant date) from which cliff and lock-end offsets are calculated. Each run supports exactly one anchor date. If wallets have different anchor dates, they must be processed in separate runs.
+
+### Step 3: Review the Outputs
+
+The command produces two files in `--out-dir`:
+
+- `safe-tx.json` — Safe-compatible transaction batch file, importable into Safe Transaction Builder.
+- `safe-tx.summary.txt` — Human-readable summary file for reviewer verification.
+
+Review the console output for any warnings (e.g. per-wallet allocations exceeding 1% of total supply).
+
+### Step 4: Import into Safe and Verify
+
+1. Open Safe Transaction Builder at `safe.global`.
+2. Import `safe-tx.json`.
+3. For each transaction in the batch, verify the `calldataHash` from the summary file:
+   - Copy the raw calldata hex from the Transaction Builder.
+   - Run `hash <hex>` to compute its keccak256.
+   - Confirm it matches the `calldataHash` in the summary file.
+
+The `hash` utility:
+
+```bash
+hash <hex-string>
+```
+
+Computes `keccak256` of hex-encoded input. `0x` prefix is optional. Output is lowercase hex with `0x` prefix (66 characters).
+
+Test vectors (if you want to verify `hash` outputs the correct value):
+
+```bash
+hash 0x1234
+# => 0x56570de287d73cd1cb6092bb8fdee6173974955fdef345ae579ee9f475ea7432
+
+hash 0xabcdef
+# => 0x800d501693feda2226878e1ec7869eef8919dbc5bd10c2bcd031b94d73492860
+
+hash 0x6a627842
+# => 0x654347b7dc147d586800b07bed0ef8d31b06de26b3210a3e014f9445ad4bf8da
+```
+
+### Step 5: Distribute to Reviewers
+
+Send `safe-tx.summary.txt` (and optionally `safe-tx.json`) to reviewers/signers via end-to-end encrypted communications.
+
+### Step 6: Reviewer Verification
+
+> _TODO: Add detailed field-by-field reviewer guidance with a worked example summary file and Safe UI screenshots._
+
+Reviewers open the pending transaction in Safe (`safe.global` or the Safe mobile app) and verify:
+
+1. Decoded transaction details on Safe (contract address, function name, parameters) match the summary file.
+2. Chain ID, contract addresses, and anchor date match expectations.
+3. Total wallets, total OMA, and per-transaction details match.
+4. WARNINGS section: check for any threshold override warnings (non-default `--max-total-pct` or `--warn-wallet-pct`). If present, verify the overrides are authorized. Check any per-wallet allocation warnings and verify each is intentional. Do not sign until all warnings are accounted for.
+5. Optional: download `safe-tx.json` and verify SHA-256 against the summary file putting this in the command line: `shasum -a 256 safe-tx.json`.
+6. At least one reviewer should validate using the Safe mobile app.
+
+### Step 7: Approve and Execute
+
+Signers approve through Safe. Once the signing threshold is met, any signer can execute the transaction.
+
+### Verifying Known Locks (`lock-verify-json`)
+
+After transactions are executed on-chain, use `lock-verify-json` to reconcile the known-locks files (`data/sepolia-known-locks.json` and `data/mainnet-known-locks.json`) against actual on-chain state:
+
+```bash
+lock-verify-json --network mainnet          # dry-run by default on mainnet
+lock-verify-json --network sepolia          # auto-fix by default on sepolia
+lock-verify-json --network mainnet --auto-fix  # override to auto-fix
+```
+
+Reads `data/<network>-known-locks.json`, queries `getLock()` for each wallet, and reports or fixes discrepancies:
+
+- Lock matches fixture → OK
+- Lock exists but parameters differ → update fixture (auto-fix flag) or report mismatch (default)
+- No lock on-chain → remove from fixture (auto-fix flag) or report missing (default)
+
+---
+
+## Data Directory
+
+The `data/` directory stores operational reference data and run archives.
+
+```
+data/
+  sepolia-known-locks.json
+  mainnet-known-locks.json
+  runs/
+    mainnet/
+      2025-03-10-001-addLocks/
+        input.csv
+        safe-tx.json
+        safe-tx.summary.txt
+    sepolia/
+      2025-03-06-001-addLocks/
+        input.csv
+        safe-tx.json
+        safe-tx.summary.txt
+```
+
+### Known Lock Files
+
+`<network>-known-locks.json` — JSON array of wallet lock records, newest first. Automatically maintained by `lock-add-locks`, `lock-update-locks`, and `lock-verify-json`.
+
+- `lock-add-locks`: prepends new entries for all wallets in the run.
+- `lock-update-locks`: removes existing entries for updated wallets, then prepends new entries with updated dates.
+- Each entry includes a `source` field that traces it back to the run that created it (e.g. `addLocks:9f2c1e4b7a21`, where the suffix is the short batch fingerprint). This lets you find the corresponding run archive in `data/runs/` to review the original CSV and summary.
+- Entries represent expected state (updated at generation time, before Safe execution). Use `lock-verify-json` to reconcile against on-chain state after execution.
+
+### Run Archives
+
+Each run should be archived using the naming convention:
+
+```
+data/runs/<network>/YYYY-MM-DD-NNN-<operation>/
+```
+
+- `YYYY-MM-DD` — date of the run
+- `NNN` — zero-padded index (001, 002, ...) for multiple runs on the same day
+- `<operation>` — `addLocks` or `updateLocks`
+
+Place the input CSV in the folder first, then point both `--csv` and `--out-dir` at the same folder. After the run, the folder contains the complete audit trail.
+
+---
+
+## Slashing Locks (`lock-slash`)
+
+Generates Safe transactions that call `slash(address wallet_, address to_)` for each wallet. This deletes the lock record and transfers the remaining balance (`amount - claimedAmount - slashedAmount`) to the `--to` destination (typically the Safe/treasury). Tokens already claimed before slashing are not recoverable.
+
+The contract reverts with `AmountStaked` if a wallet has staked tokens. The script queries `getLock()` on-chain for each wallet before generating transactions and will hard-error if any wallet has `stakedAmount > 0`, listing the affected wallets and instructing the operator to run `lock-slash-stake` first.
+
+```bash
+lock-slash \
+  --network mainnet \
+  --csv data/runs/mainnet/2025-03-10-003-slash/input.csv \
+  --to 0xSafeTreasuryAddress \
+  --out-dir data/runs/mainnet/2025-03-10-003-slash
+```
+
+### CSV Format
+
+| Column    | Format                        | Description      |
+|-----------|-------------------------------|------------------|
+| `address` | EVM checksum or lowercase hex | Wallet to slash  |
+
+### Parameters
+
+| Flag                       | Required | Default   | Description                                      |
+|----------------------------|----------|-----------|--------------------------------------------------|
+| `--network`                | no       | `sepolia` | `mainnet` or `sepolia`                           |
+| `--csv`                    | yes      | —         | CSV file with `address` column                   |
+| `--to`                     | yes      | —         | Destination address for recovered tokens         |
+| `--out-dir`                | yes      | —         | Directory for output files                       |
+| `--rpc-url`                | no       | —         | Override RPC endpoint                            |
+| `--lock-contract`          | no       | —         | Override OMALock address (requires `--allow-address-override`) |
+| `--oma-token`              | no       | —         | Override OMA token address (requires `--allow-address-override`) |
+| `--allow-address-override` | no       | `false`   | Allow `--lock-contract` / `--oma-token` overrides |
+
+### Behavior
+
+- One `slash()` call per wallet → one Safe transaction per wallet in the batch.
+- Wallets are sorted by lowercase address for deterministic output.
+- If any wallet has no lock on-chain, the script errors.
+- If any wallet has `stakedAmount > 0`, the script errors with a clear message listing all affected wallets. `lock-slash-stake` must be run first for those wallets — these are separate governance decisions.
+
+### Outputs
+
+`safe-tx.json` and `safe-tx.summary.txt` in `--out-dir`, following the same patterns as other write commands.
+
+---
+
+## Slashing Staked Tokens (`lock-slash-stake`)
+
+Generates Safe transactions that call `slashStake(address wallet_, uint96 amount_, address to_)` for each wallet. This reduces the wallet's `stakedAmount` and transfers the slashed tokens to `--to`. The lock record is preserved (not deleted).
+
+The script queries `getLock()` on-chain for each wallet to read the current `stakedAmount`. By default, the full `stakedAmount` is slashed. To slash a partial amount, include a `stakedAmount` column in the CSV with the wei value to slash.
+
+```bash
+# Slash full staked amount for each wallet
+lock-slash-stake \
+  --network mainnet \
+  --csv data/runs/mainnet/2025-03-10-004-slashStake/input.csv \
+  --to 0xSafeTreasuryAddress \
+  --out-dir data/runs/mainnet/2025-03-10-004-slashStake
+```
+
+### CSV Format
+
+| Column         | Format                        | Required | Description                                                        |
+|----------------|-------------------------------|----------|--------------------------------------------------------------------|
+| `address`      | EVM checksum or lowercase hex | yes      | Wallet to slash stake from                                         |
+| `stakedAmount` | Integer wei string            | no       | Partial amount to slash (wei). Omit or leave blank for full slash. |
+
+### Parameters
+
+| Flag                       | Required | Default   | Description                                      |
+|----------------------------|----------|-----------|--------------------------------------------------|
+| `--network`                | no       | `sepolia` | `mainnet` or `sepolia`                           |
+| `--csv`                    | yes      | —         | CSV file with `address` column                   |
+| `--to`                     | yes      | —         | Destination address for slashed tokens           |
+| `--out-dir`                | yes      | —         | Directory for output files                       |
+| `--rpc-url`                | no       | —         | Override RPC endpoint                            |
+| `--lock-contract`          | no       | —         | Override OMALock address (requires `--allow-address-override`) |
+| `--oma-token`              | no       | —         | Override OMA token address (requires `--allow-address-override`) |
+| `--allow-address-override` | no       | `false`   | Allow `--lock-contract` / `--oma-token` overrides |
+
+### Behavior
+
+- One `slashStake()` call per wallet → one Safe transaction per wallet in the batch.
+- Wallets are sorted by lowercase address for deterministic output.
+- If any wallet has no lock on-chain, the script errors.
+- If any wallet has `stakedAmount == 0` on-chain, the script errors (nothing to slash).
+- If a CSV `stakedAmount` exceeds the on-chain `stakedAmount`, the script errors.
+
+### Outputs
+
+`safe-tx.json` and `safe-tx.summary.txt` in `--out-dir`, following the same patterns as other write commands.
+
+---
+
+## Reference
+
+### Anchor Date and Offset Month Math
+
+The anchor date (`--anchor-date-utc`) is the legal/commercial reference point from which cliff and lock-end offsets are calculated. It must be ISO-8601 with `Z` suffix exclusively — numeric timezone offsets are rejected.
+
+Offset resolution rules:
+
+- Month addition uses UTC calendar months.
+- If the target month has fewer days, clamp to the month's last day.
+- Preserve time-of-day from anchor.
+
+Example: `2025-01-31T00:00:00Z` + 1 month → `2025-02-28T00:00:00Z`.
+
+Lock periods are measured from the anchor date, not from script run time or Safe execution time.
+
+### On-Chain Behavior Constraints
+
+From `token-ft-eth/contracts/OMALock.sol`:
+
+- `addLocks` reverts with `LockExist` if any wallet already has a lock.
+- `updateLocks` reverts with `NoLock` if any wallet has no lock.
+- Both are all-or-nothing: one invalid wallet reverts the whole call.
+
+Operational implications:
+
+- `addLocks` cannot "top up" an already locked wallet.
+- A fully vested and claimed wallet still has an active lock record (`timestamp` is never cleared by `claim()`). `addLocks` will revert with `LockExist`. Only `slash` deletes a lock record.
+- Changing dates for existing locks must use `updateLocks`.
+- CSV duplicate addresses are rejected.
+
+### Recovery from Mistaken `addLocks`
+
+`slash(address wallet_, address to_)` is the recovery mechanism. It requires `SLASH_ROLE`, calculates remaining balance (`amount - claimedAmount - slashedAmount`), transfers those tokens to `to_` (typically the Safe/treasury), and deletes the lock record. After slashing, the wallet can be re-locked with `addLocks`. Tokens already claimed before slashing are not recoverable.
+
+If the wallet has staked tokens, `slash` reverts with `AmountStaked`. Recovery is two steps:
+
+1. `slashStake(wallet_, stakedAmount, to_)` — requires `STAKE_ROLE`. Reduces `stakedAmount` to zero. Use `lock-slash-stake` to generate the Safe transaction.
+2. `slash(wallet_, to_)` — now succeeds. Transfers remaining balance and deletes the lock record. Use `lock-slash` to generate the Safe transaction.
+
+On mainnet, the admin Safe holds both `SLASH_ROLE` and `STAKE_ROLE`.
+
+### Operation Semantics
 
 `OMALock` contract methods accept one `(cliffDate, lockEndDate)` pair per call:
 
 - `addLocks(address[] wallets, uint96[] amounts, uint40 cliffDate, uint40 lockEndDate)`
 - `updateLocks(address[] wallets, uint40 cliffDate, uint40 lockEndDate)`
 
-Therefore, per-row offsets in CSV are handled by:
+Per-row offsets in CSV are handled by:
 
-1. resolving each row's offsets to absolute Unix seconds `(cliffDate, lockEndDate)` from the anchor date
-2. grouping rows by `(cliffDate, lockEndDate)`
-3. chunking each group into deterministic batches
-4. emitting one contract call per chunk
+1. Resolving each row's offsets to absolute Unix seconds from the anchor date.
+2. Grouping rows by `(cliffDate, lockEndDate)`.
+3. Chunking each group into deterministic batches.
+4. Emitting one contract call per chunk.
 
-This preserves spreadsheet flexibility while respecting contract constraints.
+### Deterministic Grouping and Chunking
 
-### Compliance-Oriented Scheduling
+Grouping key: `<cliffDate>:<lockEndDate>`
 
-Lock periods in governance contexts are measured from a fixed legal/commercial anchor date (for example, funds-received/investment date), not from script run time or Safe execution time. The anchor date is provided via `--anchor-date-utc` and must be explicit and immutable for the run.
+Ordering rules (for deterministic artifacts):
 
-Never resolve offsets relative to the future contract execution timestamp.
+1. Sort groups by `cliffDate` ascending, then `lockEndDate` ascending.
+2. Inside each group, sort rows by lowercase address ascending.
+3. Chunk in sorted order.
 
-## On-Chain Behavior Constraints (Important)
+Chunking uses a fixed cap: `--max-wallets-per-tx` (default: `200`). Fixed chunk size is simpler to review, reproducible, and less error-prone than dynamic gas estimation.
 
-From `token-ft-eth/contracts/OMALock.sol`:
+### Validation Rules
 
-- `addLocks` reverts with `LockExist` if any wallet in the call already has a lock.
-- `updateLocks` reverts with `NoLock` if any wallet in the call has no lock.
-- both functions are all-or-nothing; one invalid wallet reverts the whole call.
+Scripts fail closed on validation errors — no output files are produced.
 
-Operational implications:
+Common:
 
-- `addLocks` cannot be used to "top up" an already locked wallet.
-- a wallet that has fully vested and claimed all tokens still has an active lock record on-chain (`timestamp` is never cleared by `claim()`). `addLocks` will revert with `LockExist` for that wallet. Only the `slash` function deletes a lock record and would allow the address to be reused in a future `addLocks` call.
-- changing dates for existing locks must use `updateLocks`.
-- CSV duplicate addresses are rejected to avoid ambiguous behavior.
-
-## Deterministic Grouping and Chunking
-
-### Grouping Key
-
-Rows are grouped by exact key:
-
-`<cliffDate>:<lockEndDate>`
-
-### Ordering Rules
-
-For deterministic artifacts:
-
-1. sort groups by `cliffDate` ascending, then `lockEndDate` ascending
-2. inside each group, sort rows by lowercase address ascending
-3. chunk in sorted order
-
-### Chunking Rule
-
-Use fixed deterministic chunking with configurable cap:
-
-- `--max-wallets-per-tx` (default: `200`)
-
-Rationale: fixed chunk size is simpler to review, reproducible, and less error-prone than dynamic gas estimation.
-
-## Validation Rules
-
-Scripts must fail closed on validation errors.
-
-### Common
-
-- required headers must exist
-- no blank required values
-- valid EVM address format
-- duplicate `address` rows are not allowed in the same csv file
+- Required headers must exist
+- No blank required values
+- Valid EVM address format
+- No duplicate addresses in the same CSV
 - `amount` must be positive
-- optional `amountWei` must be positive if present
-- each row must have valid integer `cliffOffsetMonths` and `lockEndOffsetMonths`
-- run must provide `--anchor-date-utc` (ISO-8601 with `Z` suffix)
+- `amountWei` must be positive if present
+- Valid integer `cliffOffsetMonths` and `lockEndOffsetMonths`
+- `--anchor-date-utc` required (ISO-8601 with `Z` suffix)
 - `cliffOffsetMonths >= 0` and `lockEndOffsetMonths > cliffOffsetMonths`
-- resolved `cliffDate > 0`
-- resolved `lockEndDate > cliffDate`
-- resolved timestamps must be integer Unix seconds (not milliseconds)
-- all numeric values must fit contract types:
-  - `amount` -> `uint96` (after decimals conversion)
-  - `cliffDate`, `lockEndDate` -> `uint40`
-- chain selection must resolve to a supported chain and chain ID
-- contract address must match configured chain defaults unless override flag is explicitly used
+- Resolved `cliffDate > 0` and `lockEndDate > cliffDate`
+- Resolved timestamps must be integer Unix seconds
+- Numeric values must fit contract types: `amount` → `uint96`, dates → `uint40`
+- Chain selection must resolve to a supported chain and chain ID
 
-### `lock-add-locks` Specific
+`lock-add-locks` specific:
 
-- token decimals are read from chain (OMA expected `18`)
-- amounts are converted using on-chain decimals
-- if `amountWei` is provided, conversion must exactly match
-- optional sanity checks:
-  - total amount in run
-  - per-wallet min/max thresholds
+- Token decimals read from chain (OMA expected `18`)
+- Amounts converted using on-chain decimals
+- `amountWei` cross-check must exactly match if provided
+- Total amount sanity check (`--max-total-pct`, default 10% of 333,333,333 OMA supply)
+- Per-wallet warning (`--warn-wallet-pct`, default 1% of supply)
+- All wei values in the summary file and terminal output are accompanied by the human-readable OMA equivalent
 
-### `lock-update-locks` Specific
+`lock-update-locks` specific:
 
-- amounts are not encoded into calldata
-- `amount` is still a required CSV field for `lock-update-locks`. This is an intentional strict policy: the amount column allows reviewers to cross-reference wallet addresses against known on-chain lock amounts to confirm the correct wallets are being updated. The script does not encode or use this value beyond basic format validation.
-- if `amountWei` is provided, it is validated for consistency but never encoded
+- Amounts are not encoded into `updateLocks` calldata — the contract function only takes wallets and dates
+- `amount` is still a required CSV column so reviewers can cross-reference wallet addresses against known on-chain lock amounts to confirm the correct wallets are being updated
+- `amountWei` validated for consistency if present, but never encoded
 
-## Outputs
+### Output File Formats
 
-For each run, the tool outputs:
+#### `safe-tx.json`
 
-- `safe-tx.json`
-- `safe-tx.summary.txt`
+Importable directly in Safe Transaction Builder UI (`safe.global`).
 
-### `safe-tx.json`
+- `version`: `"1.0"`
+- `chainId`: string, EIP-155 chain ID
+- `createdAt`: `0` (deterministic)
+- `meta.name`: includes operation + short fingerprint (e.g. `"OMA3 lock-add-locks 9f2c1e4b7a21"`)
+- `meta.description`: `"Generated by oma3-ops"`
+- `meta.txBuilderVersion`: `"1.x"`
+- `meta.createdFromSafeAddress`: `""` (empty)
+- `meta.createdFromOwnerAddress`: `""` (empty)
+- `transactions`: An array of blockchain transactions. Each transaction in the array has the following fields: `to` = OMALock address, `value` = `"0"`, `data` = ABI-encoded calldata, `contractMethod` with canonical input schema, `contractInputsValues` string map.
+- Transactions appear in deterministic group/chunk order.
 
-Must be importable directly in the Safe Transaction Builder UI (`safe.global`).
-
-Content requirements:
-
-- top-level fields:
-  - `version` (string, `1.0`)
-  - `chainId` (string, EIP-155 chain ID)
-  - `createdAt` (number, unix milliseconds, deterministic default `0`)
-  - `meta` object
-  - `transactions` array
-- `meta` fields:
-  - `name` (string; includes operation + short fingerprint)
-  - `description` (string)
-  - `txBuilderVersion` (string)
-  - `createdFromSafeAddress` (string; empty by default)
-  - `createdFromOwnerAddress` (string; empty by default)
-  - `checksum` (string, optional)
-- each `transactions[i]`:
-  - `to` = OMA Lock contract address
-  - `value` = `"0"`
-  - `data` = ABI-encoded calldata hex string
-  - `contractMethod` with canonical input schema
-  - `contractInputsValues` string map matching encoded args
-- transactions appear in deterministic group/chunk order.
-
-### `safe-tx.json` Minimal Schema Example
+Minimal example:
 
 ```json
 {
@@ -302,24 +566,9 @@ Content requirements:
 }
 ```
 
-### `safe-tx.summary.txt`
+#### `safe-tx.summary.txt`
 
-Human-readable summary that includes:
-
-- operation name (`addLocks` or `updateLocks`)
-- chain and chain ID
-- anchor datetime
-- contract addresses used (OMALock and OMA ERC-20 token)
-- input file path and row count
-- transaction count
-- total wallets
-- total OMA amount (from CSV; encoded total for `addLocks`)
-- per-transaction details (wallet count, total amount, boundary wallets)
-- validation results
-- SHA-256 of `safe-tx.json`
-- deterministic batch fingerprint (short + full)
-
-### `safe-tx.summary.txt` Required Sections (Order)
+Required sections in order:
 
 ```text
 OMA3 OPS TRANSACTION SUMMARY
@@ -342,7 +591,7 @@ JSON SHA256:
 Batch Fingerprint:
 
 TRANSACTIONS
-- tx 1: method=addLocks cliffUnix=... cliffUtc=... lockEndUnix=... lockEndUtc=... wallets=... totalWei=... firstWallet=... lastWallet=... calldataHash=0xabc123...
+- tx 1: method=addLocks cliffUnix=... cliffUtc=... lockEndUnix=... lockEndUtc=... wallets=... totalOMA=... totalWei=... firstWallet=... lastWallet=... calldataHash=0x...
 - tx 2: ...
 
 VALIDATION
@@ -350,176 +599,43 @@ VALIDATION
 - duplicate addresses: pass
 - offset resolution: pass
 - timestamp format: pass
+
+WARNINGS
+- WARNING: --max-total-pct set to 50 (default: 10). Verify this override is authorized.
+- WARNING: --warn-wallet-pct set to 5 (default: 1). Verify this override is authorized.
+- 0x5E77...1615: allocated 5,000,000.0 OMA (1.50% of total supply)
+- (or "None" if no warnings)
 ```
 
 Field notes:
 
-- `Anchor Date UTC` is the anchor date provided via `--anchor-date-utc`.
-- `OMA Token Contract` is the OMA ERC-20 token address for the selected network. Included so reviewers can confirm the correct token is being used (relevant because `addLocks` performs a `safeTransferFrom` on this token).
-- `Validation: PASS` is always `PASS` in a successfully generated summary. If validation fails, the script exits with an error and no summary is produced (fail-closed).
-- `Rows Parsed` is the total number of data rows in the CSV. Since the script is fail-closed, all parsed rows are accepted or the run aborts — there is no partial acceptance.
-- Validation line items use `pass` when the check succeeded or `N/A` when the check does not apply (e.g. `amountWei cross-check` is `N/A` when no `amountWei` column is present in the CSV). A summary file is never produced on a failed run — if any validation fails, the script exits with an error and no output files are written.
-- The TRANSACTIONS section lists each transaction in deterministic order, mapping 1:1 to the `transactions` array in `safe-tx.json`. Each entry includes its group key (cliff/lockEnd dates), wallet count, total amount, boundary wallets, and a `calldataHash`. The proposer verifies each `calldataHash` against the Safe UI by copying the raw calldata hex from the Transaction Builder and running `hash <hex>`. Reviewers can perform the same check independently or rely on the proposer's verification.
-- `calldataHash` is `keccak256` computed over the raw bytes of the `data` field. Canonicalization: strip the `0x` prefix from the hex string, reject odd-length hex, decode to bytes, then hash the bytes. Output is lowercase hex with `0x` prefix (66 characters total).
-- `Batch Fingerprint` is a batch-level convenience digest: concatenate the 32-byte raw digest of each per-transaction `calldataHash` in transaction order, then compute `keccak256` over the concatenated bytes. Output is lowercase hex with `0x` prefix. The short fingerprint is the first 12 hex characters after `0x` (i.e. `0x` + 12 chars). It allows two reviewers to quickly confirm they are looking at the same batch without comparing every per-tx hash individually. Per-transaction `calldataHash` values are the primary verification mechanism.
+- `Validation: PASS` is always `PASS` in a successfully generated summary file. If validation fails, the script exits with an error and no summary file is produced (fail-closed).
+- `Rows Parsed` is the total number of data rows. Since the script is fail-closed, all parsed rows are accepted or the run aborts.
+- Validation line items use `pass` when the check succeeded or `N/A` when the check does not apply (e.g. `amountWei cross-check` is `N/A` when no `amountWei` column is present).
+- WARNINGS lists per-wallet allocations exceeding the `--warn-wallet-pct` threshold. These are informational — the run completes — but reviewers must verify each flagged allocation is intentional. If the proposer overrode the default `--max-total-pct` or `--warn-wallet-pct` thresholds, a WARNING line is emitted for each override showing the value used and the default. Reviewers must verify any threshold overrides are authorized before signing.
+- `calldataHash` is `keccak256` over the raw bytes of the `data` field. Canonicalization: strip `0x` prefix, reject odd-length hex, decode to bytes, hash. Output is lowercase hex with `0x` prefix (66 characters).
+- `Batch Fingerprint` is a convenience digest: concatenate the 32-byte raw digest of each per-transaction `calldataHash` in order, then `keccak256` over the concatenated bytes. The short fingerprint is `0x` + first 12 hex characters. Per-transaction `calldataHash` values are the primary verification mechanism.
+- `OMA Token Contract` is included so reviewers can confirm the correct token (relevant because `addLocks` performs a `safeTransferFrom` on this token).
 
-## Hash Integrity
+### Hash Canonicalization
 
-Summary includes:
+The `hash` utility and all internal hash computations follow these rules:
 
-`SHA256(safe-tx.json): <hash>`
-
-Reviewers can verify with:
-
-```bash
-shasum -a 256 safe-tx.json
-```
-
-Note: Safe UI may not display file-level SHA256 directly; reviewers should compare decoded transactions plus the summary fingerprint/totals.
-
-## CLI Shape (Spec)
-
-Final flag names may evolve, but behavior should match this contract.
-
-### `lock-add-locks`
-
-```bash
-lock-add-locks \
-  --network <mainnet|sepolia> \
-  --anchor-date-utc <ISO-8601 UTC datetime> \
-  --csv <path/to/file.csv> \
-  --out-dir <path/to/output> \
-  --max-wallets-per-tx 200
-```
-
-Defaults:
-
-- `--network sepolia`
-- `--max-wallets-per-tx 200`
-
-`--anchor-date-utc` is required and must use the `Z` suffix (numeric timezone offsets are rejected).
-
-Network mapping:
-
-- `sepolia` -> chainId `11155111`
-- `mainnet` -> chainId `1`
-
-### `lock-update-locks`
-
-```bash
-lock-update-locks \
-  --network <mainnet|sepolia> \
-  --anchor-date-utc <ISO-8601 UTC datetime> \
-  --csv <path/to/file.csv> \
-  --out-dir <path/to/output> \
-  --max-wallets-per-tx 200
-```
-
-`lock-update-locks` uses the same anchor rules as `lock-add-locks`.
-
-### `lock-status`
-
-Read-only command that queries `getLock()` on-chain for one or more wallets and prints lock status.
-
-```bash
-# Single or multiple wallets
-lock-status \
-  --network <mainnet|sepolia> \
-  --wallet 0xabc... 0xdef... 0x123...
-
-# Batch from CSV (requires `address` column header)
-lock-status \
-  --network <mainnet|sepolia> \
-  --csv <path/to/wallets.csv>
-```
-
-Exactly one of `--wallet` or `--csv` must be provided. `--wallet` accepts one or more space-separated addresses as positional arguments after the flag.
-
-Optional:
-
-- `--out <path>` writes output to a file (JSON format). Without this flag, output is printed to the terminal as a human-readable table.
-
-Per-wallet output fields:
-
-- `address`: wallet address (checksum)
-- `hasLock`: whether a lock record exists
-- `timestamp`: lock creation timestamp (unix + UTC)
-- `cliffDate`: cliff date (unix + UTC)
-- `lockEndDate`: lock end date (unix + UTC)
-- `amount`: total locked amount (human + wei)
-- `claimedAmount`: amount claimed (human + wei)
-- `stakedAmount`: amount staked (human + wei)
-- `slashedAmount`: amount slashed (human + wei)
-- `unlockedAmount`: current unlocked amount (human + wei)
-- `claimable`: available to claim now (human + wei), computed as `min(unlockedAmount - claimedAmount, amount - claimedAmount - stakedAmount - slashedAmount)`, floored at 0
-- `vestingProgress`: percentage of total amount unlocked, e.g. `45.2%`
-
-Wallets without a lock record are reported with `hasLock: false` and all other fields as `N/A` (no error).
-
-Defaults:
-
-- `--network sepolia`
-
-### `hash`
-
-```bash
-hash <hex-string>
-```
-
-Utility command that computes `keccak256` of the provided hex-encoded input and prints the result. Used by the proposer during the governance workflow to verify calldata hashes against the Safe UI.
-
-Canonicalization rules:
-
-- Input `0x` prefix is optional; if present it is stripped before decoding.
-- Hex string must be even-length (whole bytes). Odd-length input is rejected with an error.
+- Input `0x` prefix is optional; stripped before decoding.
+- Hex string must be even-length (whole bytes). Odd-length is rejected.
 - Hex is decoded to raw bytes, then `keccak256` is computed over those bytes.
 - Output is lowercase hex with `0x` prefix (66 characters total).
 
-Test vectors:
+### Testing Strategy
 
-```bash
-hash 0x1234
-# => 0x56570de287d73cd1cb6092bb8fdee6173974955fdef345ae579ee9f475ea7432
+This README acts as the implementation spec for QA. Tests must be written against the spec, not the implementation code.
 
-hash 0xabcdef
-# => 0x800d501693feda2226878e1ec7869eef8919dbc5bd10c2bcd031b94d73492860
+QA should verify:
 
-hash 0x6a627842
-# => 0x654347b7dc147d586800b07bed0ef8d31b06de26b3210a3e014f9445ad4bf8da
-```
-
-No network or file arguments required.
-
-## Governance Workflow
-
-1. Transaction Initiator exports CSV from spreadsheet and checks the contents.
-2. Initiator runs the proper command to generate `safe-tx.json` and `safe-tx.summary.txt`.
-3. Initiator imports `safe-tx.json` into Safe Transaction Builder.
-4. Initiator verifies each transaction's `calldataHash` from the summary against the Safe UI: copy the raw calldata hex from the Transaction Builder, run `hash <hex>` to compute its keccak256, and confirm it matches the summary.
-5. Initiator distributes `safe-tx.summary.txt` (and optionally `safe-tx.json`) to reviewers/signers via an end-to-end encrypted messaging service.
-6. Participants validate `safe-tx.summary.txt` and confirm decoded transactions on Safe match summary totals, group/chunk details, and calldata hashes.
-7. Optional: verify `safe-tx.json` SHA256 against summary.
-8. At least one validation must use Safe mobile app.
-9. Signers approve and execute through Safe.
-
-## Security Constraints
-
-- no private keys in repo or scripts
-- no auto-submit mode in V1
-- no remote decode dependency required for verification
-- deterministic output to reduce reviewer ambiguity
-- explicit chain and contract controls to prevent cross-chain misrouting
-
-## Testing Strategy
-
-The README acts as the implementation spec for QA.  Tests must be written against the spec, not the implementation code. 
-
-QA should build tests that include verification of:
-
-- strict CSV parsing/validation behavior
-- deterministic grouping/chunk ordering
-- exact ABI encoding for `addLocks` and `updateLocks`
+- Strict CSV parsing/validation behavior
+- Deterministic grouping/chunk ordering
+- Exact ABI encoding for `addLocks` and `updateLocks`
 - Safe JSON import compatibility
-- summary correctness vs JSON payload
-- stable hash behavior for identical inputs
-- fail-closed behavior on malformed inputs
+- Summary file correctness vs JSON payload
+- Stable hash behavior for identical inputs
+- Fail-closed behavior on malformed inputs

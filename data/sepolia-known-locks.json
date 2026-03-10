@@ -1,0 +1,37 @@
+[
+  {
+    "address": "0x5E7760Acf5d659278747b95DA2Ab2B5Ea7171615",
+    "amount": "1.0",
+    "cliffDate": 1721724123,
+    "lockEndDate": 1724402523,
+    "source": "addLocks:0xd4bef9b5"
+  },
+  {
+    "address": "0x8108457554bc5822dC55B8ADAA421Ffeb970E09D",
+    "amount": "1.0",
+    "cliffDate": 1721724123,
+    "lockEndDate": 1724402523,
+    "source": "addLocks:0xd4bef9b5"
+  },
+  {
+    "address": "0x4b595014f7b45789c3f4E79324aE6D8090A6C8B5",
+    "amount": "1.0",
+    "cliffDate": 1721724123,
+    "lockEndDate": 1724402523,
+    "source": "addLocks:0xd4bef9b5"
+  },
+  {
+    "address": "0xB5a15932Be6caEeF5d21AC704300bd45e10ff92d",
+    "amount": "1.0",
+    "cliffDate": 1721724123,
+    "lockEndDate": 1724402523,
+    "source": "addLocks:0xd4bef9b5"
+  },
+  {
+    "address": "0x8533F3FFe30C9cf449CC112850e7EC815070509d",
+    "amount": "1.0",
+    "cliffDate": 1721724123,
+    "lockEndDate": 1724402523,
+    "source": "addLocks:0xd4bef9b5"
+  }
+]
