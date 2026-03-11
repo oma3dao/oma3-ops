@@ -10,6 +10,15 @@ const fixturesDir = () => resolve(process.cwd(), 'test', 'fixtures');
 let tmpDir: string;
 let outDir: string;
 
+vi.mock('../../src/known-locks.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/known-locks.js')>();
+  return {
+    ...actual,
+    saveFixtures: vi.fn(),
+    loadFixtures: vi.fn().mockReturnValue([]),
+  };
+});
+
 vi.mock('../../src/chain.js', () => ({
   loadChainContext: vi.fn().mockResolvedValue({
     network: { name: 'sepolia', chainId: 11155111n },
