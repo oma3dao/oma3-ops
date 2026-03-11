@@ -25,6 +25,15 @@ interface OnChainLock {
   lockEndDate: number;
 }
 
+interface FixedUpdate {
+  address: string;
+  diffs: string[];
+}
+
+function withVerifiedPrefix(source: string): string {
+  return source.startsWith('verified:') ? source : `verified:${source}`;
+}
+
 async function queryOnChain(
   provider: JsonRpcProvider,
   lockContract: string,
@@ -136,6 +145,8 @@ async function main(): Promise<void> {
   let mismatchCount = 0;
   let missingCount = 0;
   const kept: KnownLockEntry[] = [];
+  const appliedUpdates: FixedUpdate[] = [];
+  const appliedRemovals: string[] = [];
 
   for (const entry of entries) {
     const onChain = await queryOnChain(provider, network.omaLock, entry.address, decimals);
@@ -146,6 +157,8 @@ async function main(): Promise<void> {
       // In auto-fix mode, omit from kept (removes from fixture)
       if (!autoFix) {
         kept.push(entry);
+      } else {
+        appliedRemovals.push(entry.address);
       }
       continue;
     }
@@ -168,12 +181,13 @@ async function main(): Promise<void> {
 
       if (autoFix) {
         // Update entry with on-chain values
+        appliedUpdates.push({ address: entry.address, diffs });
         kept.push({
           ...entry,
           amount: onChain.amount,
           cliffDate: onChain.cliffDate,
           lockEndDate: onChain.lockEndDate,
-          source: `verified:${entry.source}`,
+          source: withVerifiedPrefix(entry.source),
         });
       } else {
         kept.push(entry);
@@ -186,6 +200,13 @@ async function main(): Promise<void> {
   if (autoFix && (mismatchCount > 0 || missingCount > 0)) {
     saveFixtures(fixturePath, kept);
     console.log(`Fixture updated: ${kept.length} entries written to ${fixturePath}`);
+    console.log(`Applied fixes: ${appliedUpdates.length} updated, ${appliedRemovals.length} removed`);
+    for (const update of appliedUpdates) {
+      console.log(`FIXED    ${update.address} — ${update.diffs.join(', ')}`);
+    }
+    for (const address of appliedRemovals) {
+      console.log(`REMOVED  ${address} — no lock on-chain`);
+    }
   } else if (!autoFix && (mismatchCount > 0 || missingCount > 0)) {
     console.log(`Dry-run: no changes written. Use --auto-fix to update the fixture file.`);
   }

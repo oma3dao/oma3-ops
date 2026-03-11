@@ -169,6 +169,7 @@ export async function runSlashCommand(
     'lock-contract',
     'oma-token',
     'allow-address-override',
+    'slash-all',
   ]);
   assertNoUnknownOptions(parsed.options, allowed);
 
@@ -211,9 +212,22 @@ export async function runSlashCommand(
   requireHeaders(csv.headers, ['address']);
 
   const hasStakedAmountColumn = csv.headers.includes('stakedAmount');
+  if (operation === 'slashStake' && !hasStakedAmountColumn) {
+    throw new Error(
+      "CSV missing required header 'stakedAmount' for slashStake. Include the column with positive wei values (explicit mode) or blank values with --slash-all (full mode).",
+    );
+  }
+
+  const slashAll = getBooleanFlag(parsed.options, 'slash-all');
+  if (slashAll && operation !== 'slashStake') {
+    throw new Error('--slash-all is only valid for slashStake.');
+  }
 
   const seenAddresses = new Set<string>();
   const wallets: Array<{ address: string; addressLower: string; csvStakedAmountWei: bigint | undefined; lineNumber: number }> = [];
+
+  let blankCount = 0;
+  let positiveCount = 0;
 
   for (const row of csv.rows) {
     const addressRaw = row.values.address ?? '';
@@ -235,21 +249,48 @@ export async function runSlashCommand(
     seenAddresses.add(addressLower);
 
     let csvStakedAmountWei: bigint | undefined;
-    if (hasStakedAmountColumn && operation === 'slashStake') {
+    if (operation === 'slashStake') {
       const stakedRaw = row.values.stakedAmount ?? '';
-      if (stakedRaw !== '') {
+      if (stakedRaw === '') {
+        blankCount += 1;
+      } else {
+        let parsed: bigint;
         try {
-          csvStakedAmountWei = BigInt(stakedRaw);
+          parsed = BigInt(stakedRaw);
         } catch {
-          throw new Error(`Line ${row.lineNumber}: invalid stakedAmount '${stakedRaw}'. Must be a wei integer.`);
+          throw new Error(`Line ${row.lineNumber}: invalid stakedAmount '${stakedRaw}'. Must be a positive wei integer or blank.`);
         }
-        if (csvStakedAmountWei <= 0n) {
-          throw new Error(`Line ${row.lineNumber}: stakedAmount must be positive.`);
+        if (parsed === 0n) {
+          throw new Error(`Line ${row.lineNumber}: stakedAmount must be positive or blank (0 is not valid).`);
         }
+        if (parsed < 0n) {
+          throw new Error(`Line ${row.lineNumber}: stakedAmount must be positive or blank.`);
+        }
+        positiveCount += 1;
+        csvStakedAmountWei = parsed;
       }
     }
 
     wallets.push({ address, addressLower, csvStakedAmountWei, lineNumber: row.lineNumber });
+  }
+
+  // Validate slash-stake mode consistency
+  if (operation === 'slashStake') {
+    if (blankCount > 0 && positiveCount > 0) {
+      throw new Error(
+        `Mixed stakedAmount values: ${blankCount} blank and ${positiveCount} with amounts. All rows must be blank (full mode with --slash-all) or all must have positive values (explicit mode).`,
+      );
+    }
+    if (blankCount > 0 && !slashAll) {
+      throw new Error(
+        'All stakedAmount values are blank. Provide --slash-all to confirm full staked amount slash for every wallet.',
+      );
+    }
+    if (slashAll && positiveCount > 0) {
+      throw new Error(
+        '--slash-all requires all stakedAmount values to be blank.',
+      );
+    }
   }
 
   if (wallets.length === 0) {
@@ -298,14 +339,22 @@ export async function runSlashCommand(
         throw new Error(`${w.address}: stakedAmount is 0 on-chain. Nothing to slash-stake.`);
       }
 
-      let amountToSlash = lock.stakedAmount;
-      if (w.csvStakedAmountWei !== undefined) {
-        if (w.csvStakedAmountWei > lock.stakedAmount) {
+      let amountToSlash: bigint;
+      if (slashAll) {
+        // Full mode: use on-chain stakedAmount
+        amountToSlash = lock.stakedAmount;
+      } else {
+        // Explicit mode: use CSV value, validated against on-chain
+        const csvStakedAmountWei = w.csvStakedAmountWei;
+        if (csvStakedAmountWei === undefined) {
+          throw new Error(`${w.address}: internal error — missing CSV stakedAmount in explicit mode.`);
+        }
+        if (csvStakedAmountWei > lock.stakedAmount) {
           throw new Error(
-            `${w.address}: CSV stakedAmount (${w.csvStakedAmountWei.toString()} wei) exceeds on-chain stakedAmount (${lock.stakedAmount.toString()} wei).`,
+            `${w.address}: CSV stakedAmount (${csvStakedAmountWei.toString()} wei) exceeds on-chain stakedAmount (${lock.stakedAmount.toString()} wei).`,
           );
         }
-        amountToSlash = w.csvStakedAmountWei;
+        amountToSlash = csvStakedAmountWei;
       }
 
       rows.push({
