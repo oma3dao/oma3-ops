@@ -26,13 +26,15 @@
     "lock-slash-stake": "node --env-file=.env.local dist/lock-slash-stake.js",
     "lock-status": "node --env-file=.env.local dist/lock-status.js",
     "lock-verify-json": "node --env-file=.env.local dist/lock-verify-json.js",
-    "hash": "node dist/hash.js"
+    "hash": "node dist/hash.js",
+    "admin:test-wallet": "npx tsx src/admin-wallet/test-server-wallet.ts"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "ethers": "^6.15.0"
+    "ethers": "^6.15.0",
+    "thirdweb": "^5.119.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
