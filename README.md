@@ -117,6 +117,7 @@ Both commands follow the same flow: prepare a CSV, run the command, review the o
 
 - `lock-add-locks` creates new locks. It encodes wallet addresses, amounts, cliff dates, and lock end dates into `addLocks()` calldata.
 - `lock-update-locks` modifies dates on existing locks. It encodes wallet addresses, cliff dates, and lock end dates into `updateLocks()` calldata. Amounts are not encoded into the transaction — the `amount` CSV column is required but exists only so reviewers can cross-reference that the correct wallets are being updated. The on-chain locked amount is not changed by `updateLocks`.
+- For `lock-update-locks`, the script performs on-chain preflight for every wallet and fails closed if any wallet has no lock or has an on-chain `amount` that does not match the CSV `amount`. Wallets with `stakedAmount > 0` produce a warning but do not block the run.
 
 ### Step 1: Prepare the CSV
 
@@ -360,32 +361,46 @@ lock-slash \
 
 Generates Safe transactions that call `slashStake(address wallet_, uint96 amount_, address to_)` for each wallet. This reduces the wallet's `stakedAmount` and transfers the slashed tokens to `--to`. The lock record is preserved (not deleted).
 
-The script queries `getLock()` on-chain for each wallet to read the current `stakedAmount`. By default, the full `stakedAmount` is slashed. To slash a partial amount, include a `stakedAmount` column in the CSV with the wei value to slash.
+The script queries `getLock()` on-chain for each wallet to read the current `stakedAmount`. Two modes are supported:
+
+- Explicit mode: every row has a positive `stakedAmount` value in the CSV. The script uses that value (validated against on-chain balance).
+- Full mode: every row has a blank `stakedAmount` and `--slash-all` is provided on the CLI. The script uses the full on-chain `stakedAmount` for each wallet.
+
+Mixed rows (some blank, some with values) are invalid. `0` is not valid — use blank for full mode.
 
 ```bash
-# Slash full staked amount for each wallet
+# Explicit mode: slash specific amounts
 lock-slash-stake \
   --network mainnet \
   --csv data/runs/mainnet/2025-03-10-004-slashStake/input.csv \
   --to 0xSafeTreasuryAddress \
   --out-dir data/runs/mainnet/2025-03-10-004-slashStake
+
+# Full mode: slash all staked tokens
+lock-slash-stake \
+  --network mainnet \
+  --csv data/runs/mainnet/2025-03-10-005-slashStake/input.csv \
+  --to 0xSafeTreasuryAddress \
+  --out-dir data/runs/mainnet/2025-03-10-005-slashStake \
+  --slash-all
 ```
 
 ### CSV Format
 
-| Column         | Format                        | Required | Description                                                        |
-|----------------|-------------------------------|----------|--------------------------------------------------------------------|
-| `address`      | EVM checksum or lowercase hex | yes      | Wallet to slash stake from                                         |
-| `stakedAmount` | Integer wei string            | no       | Partial amount to slash (wei). Omit or leave blank for full slash. |
+| Column         | Format                        | Required | Description                                                                     |
+|----------------|-------------------------------|----------|---------------------------------------------------------------------------------|
+| `address`      | EVM checksum or lowercase hex | yes      | Wallet to slash stake from                                                      |
+| `stakedAmount` | Integer wei string or blank   | yes      | Positive wei value (explicit mode) or blank (full mode with `--slash-all`). `0` is invalid. |
 
 ### Parameters
 
 | Flag                       | Required | Default   | Description                                      |
 |----------------------------|----------|-----------|--------------------------------------------------|
 | `--network`                | no       | `sepolia` | `mainnet` or `sepolia`                           |
-| `--csv`                    | yes      | —         | CSV file with `address` column                   |
+| `--csv`                    | yes      | —         | CSV file with `address` and `stakedAmount` columns |
 | `--to`                     | yes      | —         | Destination address for slashed tokens           |
 | `--out-dir`                | yes      | —         | Directory for output files                       |
+| `--slash-all`              | no       | `false`   | Required when all `stakedAmount` values are blank (full mode) |
 | `--rpc-url`                | no       | —         | Override RPC endpoint                            |
 | `--lock-contract`          | no       | —         | Override OMALock address (requires `--allow-address-override`) |
 | `--oma-token`              | no       | —         | Override OMA token address (requires `--allow-address-override`) |
@@ -397,6 +412,10 @@ lock-slash-stake \
 - Wallets are sorted by lowercase address for deterministic output.
 - If any wallet has no lock on-chain, the script errors.
 - If any wallet has `stakedAmount == 0` on-chain, the script errors (nothing to slash).
+- Mixed blank/non-blank `stakedAmount` rows → error.
+- All blank without `--slash-all` → error.
+- `--slash-all` with any non-blank rows → error.
+- `stakedAmount` of `0` → error.
 - If a CSV `stakedAmount` exceeds the on-chain `stakedAmount`, the script errors.
 
 ### Outputs
@@ -507,6 +526,10 @@ Common:
 - Amounts are not encoded into `updateLocks` calldata — the contract function only takes wallets and dates
 - `amount` is still a required CSV column so reviewers can cross-reference wallet addresses against known on-chain lock amounts to confirm the correct wallets are being updated
 - `amountWei` validated for consistency if present, but never encoded
+- The script queries `getLock()` for each wallet and fails if any wallet has no lock
+- The script warns (but does not fail) if any wallet has `stakedAmount > 0`
+- The script fails if any CSV amount does not exactly match on-chain lock amount
+- When writing `data/<network>-known-locks.json` for `updateLocks`, `amount` is sourced from on-chain preflight (not from CSV)
 
 ### Output File Formats
 

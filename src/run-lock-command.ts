@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { formatUnits, getAddress, parseUnits } from 'ethers';
+import { formatUnits, getAddress, Interface, JsonRpcProvider, parseUnits } from 'ethers';
 import { loadChainContext } from './chain.js';
 import {
   assertNoUnknownOptions,
@@ -30,6 +30,15 @@ import { getFixturePath, loadFixtures, saveFixtures, type KnownLockEntry } from 
 
 const UINT96_MAX = (1n << 96n) - 1n;
 const UINT40_MAX = (1n << 40n) - 1n;
+const LOCK_QUERY_ABI = [
+  'function getLock(address wallet_) view returns (tuple(uint40 timestamp, uint40 cliffDate, uint40 lockEndDate, uint96 amount, uint96 claimedAmount, uint96 stakedAmount, uint96 slashedAmount) lock, uint96 unlockedAmount)',
+] as const;
+const LOCK_QUERY_INTERFACE = new Interface(LOCK_QUERY_ABI);
+
+interface OnChainLockSnapshot {
+  readonly amount: bigint;
+  readonly stakedAmount: bigint;
+}
 
 export interface ParsedRow {
   readonly lineNumber: number;
@@ -51,6 +60,92 @@ export interface ChunkPlan {
   readonly safeTx: SafeTransaction;
   readonly calldataHash: string;
   readonly totalWei: bigint;
+}
+
+async function queryLockSnapshot(
+  provider: JsonRpcProvider,
+  lockContract: string,
+  wallet: string,
+): Promise<OnChainLockSnapshot | null> {
+  try {
+    const callData = LOCK_QUERY_INTERFACE.encodeFunctionData('getLock', [wallet]);
+    const result = await provider.call({ to: lockContract, data: callData });
+    const decoded = LOCK_QUERY_INTERFACE.decodeFunctionResult('getLock', result);
+    const lock = decoded[0] as {
+      amount: bigint;
+      stakedAmount: bigint;
+    };
+    return {
+      amount: lock.amount,
+      stakedAmount: lock.stakedAmount,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('NoLock') || message.includes('0xd8216464')) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+async function preflightUpdateLocks(params: {
+  readonly rows: readonly ParsedRow[];
+  readonly rpcUrl: string;
+  readonly lockContract: string;
+  readonly decimals: number;
+}): Promise<Map<string, bigint>> {
+  const provider = new JsonRpcProvider(params.rpcUrl);
+  const amountsByAddress = new Map<string, bigint>();
+  const missingLocks: string[] = [];
+  const stakedLocks: string[] = [];
+  const amountMismatches: string[] = [];
+
+  for (const row of params.rows) {
+    const onChain = await queryLockSnapshot(provider, params.lockContract, row.address);
+    if (!onChain) {
+      missingLocks.push(`line ${row.lineNumber} ${row.address}`);
+      continue;
+    }
+    amountsByAddress.set(row.addressLower, onChain.amount);
+
+    if (onChain.stakedAmount > 0n) {
+      stakedLocks.push(
+        `line ${row.lineNumber} ${row.address} stakedAmountWei=${onChain.stakedAmount.toString()}`,
+      );
+    }
+
+    if (onChain.amount !== row.amountWei) {
+      const csvHuman = formatUnits(row.amountWei, params.decimals);
+      const onChainHuman = formatUnits(onChain.amount, params.decimals);
+      amountMismatches.push(
+        `line ${row.lineNumber} ${row.address} csvWei=${row.amountWei.toString()} chainWei=${onChain.amount.toString()} csvHuman=${csvHuman} chainHuman=${onChainHuman}`,
+      );
+    }
+  }
+
+  // Staked wallets are warnings, not errors — updateLocks only changes dates
+  if (stakedLocks.length > 0) {
+    console.log(`WARNING: ${stakedLocks.length} wallet(s) have stakedAmount > 0:`);
+    for (const value of stakedLocks) {
+      console.log(`  ${value}`);
+    }
+  }
+
+  if (missingLocks.length > 0 || amountMismatches.length > 0) {
+    const lines: string[] = ['updateLocks preflight failed:'];
+    if (missingLocks.length > 0) {
+      lines.push(`- No lock on-chain (${missingLocks.length}):`);
+      lines.push(...missingLocks.map((value) => `  ${value}`));
+    }
+    if (amountMismatches.length > 0) {
+      lines.push(`- CSV amount mismatch vs on-chain amount (${amountMismatches.length}):`);
+      lines.push(...amountMismatches.map((value) => `  ${value}`));
+    }
+    lines.push('No output files produced.');
+    throw new Error(lines.join('\n'));
+  }
+
+  return amountsByAddress;
 }
 
 function requireInt(name: string, raw: string, lineNumber: number): number {
@@ -361,6 +456,18 @@ export async function runLockCommand(operation: Operation, argv: string[]): Prom
   });
 
   const totalWei = rows.reduce((acc, row) => acc + row.amountWei, 0n);
+  let updateLocksAmountsByAddress: Map<string, bigint> | undefined;
+
+  if (operation === 'updateLocks') {
+    console.log(`Preflight: verifying ${rows.length} wallet(s) against on-chain locks...`);
+    updateLocksAmountsByAddress = await preflightUpdateLocks({
+      rows,
+      rpcUrl: chainContext.rpcUrl,
+      lockContract: chainContext.lockContract,
+      decimals: chainContext.decimals,
+    });
+    console.log('Preflight updateLocks checks: pass');
+  }
 
   // Threshold checks (addLocks only)
   let maxTotalPct: number | undefined;
@@ -464,13 +571,23 @@ export async function runLockCommand(operation: Operation, argv: string[]): Prom
   const existingEntries = loadFixtures(fixturePath);
   const sourceTag = `${operation === 'addLocks' ? 'addLocks' : 'updateLocks'}:${short.replace(/^0x/, '')}`;
 
-  const newEntries: KnownLockEntry[] = rows.map((row) => ({
-    address: row.address,
-    amount: formatUnits(row.amountWei, chainContext.decimals),
-    cliffDate: row.cliffDate,
-    lockEndDate: row.lockEndDate,
-    source: sourceTag,
-  }));
+  const newEntries: KnownLockEntry[] = rows.map((row) => {
+    let amountWeiForFixture = row.amountWei;
+    if (operation === 'updateLocks') {
+      const onChainAmountWei = updateLocksAmountsByAddress?.get(row.addressLower);
+      if (onChainAmountWei === undefined) {
+        throw new Error(`Internal error: missing preflight lock amount for ${row.address}.`);
+      }
+      amountWeiForFixture = onChainAmountWei;
+    }
+    return {
+      address: row.address,
+      amount: formatUnits(amountWeiForFixture, chainContext.decimals),
+      cliffDate: row.cliffDate,
+      lockEndDate: row.lockEndDate,
+      source: sourceTag,
+    };
+  });
 
   let updatedEntries: KnownLockEntry[];
   if (operation === 'addLocks') {
