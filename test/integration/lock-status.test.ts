@@ -19,6 +19,11 @@ const WALLET_WITH_LOCK = process.env.OMA3_OPS_WALLET_WITH_LOCK_SEPOLIA;
 
 let tmpDir: string;
 
+// NOTE: This test shells out via execFileSync rather than using the import-and-mock
+// pattern (as used in unit tests). This is intentional — lock-status.ts is a CLI
+// entry point with no exported functions; it reads process.argv, writes to stdout,
+// and sets process.exitCode directly. Shelling out tests the full CLI surface
+// (arg parsing, RPC calls, stdout formatting, JSON output) end-to-end.
 const tsxPath = resolve(process.cwd(), 'node_modules', '.bin', 'tsx');
 const scriptPath = resolve(process.cwd(), 'src', 'lock-status.ts');
 

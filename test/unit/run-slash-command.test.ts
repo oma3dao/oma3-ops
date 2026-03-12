@@ -231,8 +231,8 @@ describe('runSlashCommand - slash', () => {
   });
 });
 
-describe('runSlashCommand - slashStake', () => {
-  it('generates safe-tx.json and summary for slashStake', async () => {
+describe('runSlashCommand - slashStake (explicit mode)', () => {
+  it('generates safe-tx.json and summary for slashStake with explicit amounts', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     // Wallets have staked tokens
     mockCall.mockResolvedValue(encodeLockResult({ stakedAmount: 5000000000000000000n }));
@@ -263,23 +263,6 @@ describe('runSlashCommand - slashStake', () => {
     logSpy.mockRestore();
   });
 
-  it('throws if wallet has zero staked amount in slashStake mode', async () => {
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    // Wallet has zero staked
-    mockCall.mockResolvedValue(encodeLockResult({ stakedAmount: 0n }));
-
-    await expect(
-      runSlashCommand('slashStake', [
-        '--csv', join(fixturesDir(), 'slash-2-wallets.csv'),
-        '--to', '0x000000000000000000000000000000000000dEaD',
-        '--out-dir', outDir,
-        '--rpc-url', 'https://mock.example.com',
-      ]),
-    ).rejects.toThrow(/stakedAmount is 0 on-chain/);
-
-    logSpy.mockRestore();
-  });
-
   it('throws if CSV stakedAmount exceeds on-chain stakedAmount', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     // On-chain has 1 OMA staked, CSV asks for 5 OMA
@@ -297,16 +280,34 @@ describe('runSlashCommand - slashStake', () => {
     logSpy.mockRestore();
   });
 
-  it('uses full on-chain stakedAmount when no CSV stakedAmount column', async () => {
+  it('throws if wallet has zero staked amount on-chain', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    // Use address-only CSV (no stakedAmount column)
+    mockCall.mockResolvedValue(encodeLockResult({ stakedAmount: 0n }));
+
+    await expect(
+      runSlashCommand('slashStake', [
+        '--csv', join(fixturesDir(), 'slash-stake-2-wallets.csv'),
+        '--to', '0x000000000000000000000000000000000000dEaD',
+        '--out-dir', outDir,
+        '--rpc-url', 'https://mock.example.com',
+      ]),
+    ).rejects.toThrow(/stakedAmount is 0 on-chain/);
+
+    logSpy.mockRestore();
+  });
+});
+
+describe('runSlashCommand - slashStake (full mode / --slash-all)', () => {
+  it('--slash-all with blank stakedAmount values succeeds', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     mockCall.mockResolvedValue(encodeLockResult({ stakedAmount: 5000000000000000000n }));
 
     await runSlashCommand('slashStake', [
-      '--csv', join(fixturesDir(), 'slash-2-wallets.csv'),
+      '--csv', join(fixturesDir(), 'slash-stake-blank-amounts.csv'),
       '--to', '0x000000000000000000000000000000000000dEaD',
       '--out-dir', outDir,
       '--rpc-url', 'https://mock.example.com',
+      '--slash-all',
     ]);
 
     const jsonPath = join(outDir, 'safe-tx.json');
@@ -314,6 +315,189 @@ describe('runSlashCommand - slashStake', () => {
 
     const safeBatch = JSON.parse(readFileSync(jsonPath, 'utf8'));
     expect(safeBatch.transactions).toHaveLength(2);
+    for (const tx of safeBatch.transactions) {
+      expect(tx.contractMethod.name).toBe('slashStake');
+    }
+
+    logSpy.mockRestore();
+  });
+
+  it('--slash-all with positive stakedAmount values throws', async () => {
+    await expect(
+      runSlashCommand('slashStake', [
+        '--csv', join(fixturesDir(), 'slash-stake-2-wallets.csv'),
+        '--to', '0x000000000000000000000000000000000000dEaD',
+        '--out-dir', outDir,
+        '--rpc-url', 'https://mock.example.com',
+        '--slash-all',
+      ]),
+    ).rejects.toThrow(/--slash-all requires all stakedAmount values to be blank/);
+  });
+
+  it('blank stakedAmount without --slash-all throws', async () => {
+    await expect(
+      runSlashCommand('slashStake', [
+        '--csv', join(fixturesDir(), 'slash-stake-blank-amounts.csv'),
+        '--to', '0x000000000000000000000000000000000000dEaD',
+        '--out-dir', outDir,
+        '--rpc-url', 'https://mock.example.com',
+      ]),
+    ).rejects.toThrow(/Provide --slash-all to confirm full staked amount slash/);
+  });
+
+  it('--slash-all is only valid for slashStake, not slash', async () => {
+    await expect(
+      runSlashCommand('slash', [
+        '--csv', join(fixturesDir(), 'slash-2-wallets.csv'),
+        '--to', '0x000000000000000000000000000000000000dEaD',
+        '--out-dir', outDir,
+        '--rpc-url', 'https://mock.example.com',
+        '--slash-all',
+      ]),
+    ).rejects.toThrow(/--slash-all is only valid for slashStake/);
+  });
+});
+
+describe('runSlashCommand - slashStake mode validation', () => {
+  it('throws on mixed blank and positive stakedAmount values', async () => {
+    await expect(
+      runSlashCommand('slashStake', [
+        '--csv', join(fixturesDir(), 'slash-stake-mixed-amounts.csv'),
+        '--to', '0x000000000000000000000000000000000000dEaD',
+        '--out-dir', outDir,
+        '--rpc-url', 'https://mock.example.com',
+      ]),
+    ).rejects.toThrow(/Mixed stakedAmount values/);
+  });
+
+  it('throws on zero stakedAmount value', async () => {
+    await expect(
+      runSlashCommand('slashStake', [
+        '--csv', join(fixturesDir(), 'slash-stake-zero-amount.csv'),
+        '--to', '0x000000000000000000000000000000000000dEaD',
+        '--out-dir', outDir,
+        '--rpc-url', 'https://mock.example.com',
+      ]),
+    ).rejects.toThrow(/stakedAmount must be positive or blank \(0 is not valid\)/);
+  });
+
+  it('throws when slashStake CSV missing stakedAmount header', async () => {
+    await expect(
+      runSlashCommand('slashStake', [
+        '--csv', join(fixturesDir(), 'slash-no-staked-header.csv'),
+        '--to', '0x000000000000000000000000000000000000dEaD',
+        '--out-dir', outDir,
+        '--rpc-url', 'https://mock.example.com',
+      ]),
+    ).rejects.toThrow(/CSV missing required header 'stakedAmount' for slashStake/);
+  });
+
+  it('throws on negative stakedAmount value', async () => {
+    await expect(
+      runSlashCommand('slashStake', [
+        '--csv', join(fixturesDir(), 'slash-stake-negative-amount.csv'),
+        '--to', '0x000000000000000000000000000000000000dEaD',
+        '--out-dir', outDir,
+        '--rpc-url', 'https://mock.example.com',
+      ]),
+    ).rejects.toThrow(/stakedAmount must be positive or blank/);
+  });
+
+  it('throws on non-numeric stakedAmount value', async () => {
+    await expect(
+      runSlashCommand('slashStake', [
+        '--csv', join(fixturesDir(), 'slash-stake-invalid-amount.csv'),
+        '--to', '0x000000000000000000000000000000000000dEaD',
+        '--out-dir', outDir,
+        '--rpc-url', 'https://mock.example.com',
+      ]),
+    ).rejects.toThrow(/invalid stakedAmount 'abc'.*Must be a positive wei integer or blank/);
+  });
+
+  it('rethrows non-NoLock RPC errors during on-chain query', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    // Simulate a generic RPC failure (not NoLock)
+    mockCall.mockRejectedValue(new Error('connection timeout'));
+
+    await expect(
+      runSlashCommand('slash', [
+        '--csv', join(fixturesDir(), 'slash-2-wallets.csv'),
+        '--to', '0x000000000000000000000000000000000000dEaD',
+        '--out-dir', outDir,
+        '--rpc-url', 'https://mock.example.com',
+      ]),
+    ).rejects.toThrow(/connection timeout/);
+
+    logSpy.mockRestore();
+  });
+});
+
+describe('runSlashCommand - slashStake amount validation', () => {
+  it('--slash-all full mode uses on-chain stakedAmount in transaction', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const onChainStakedWei = 7777000000000000000n; // 7.777 OMA
+    mockCall.mockResolvedValue(encodeLockResult({ stakedAmount: onChainStakedWei }));
+
+    await runSlashCommand('slashStake', [
+      '--csv', join(fixturesDir(), 'slash-stake-blank-amounts.csv'),
+      '--to', '0x000000000000000000000000000000000000dEaD',
+      '--out-dir', outDir,
+      '--rpc-url', 'https://mock.example.com',
+      '--slash-all',
+    ]);
+
+    const safeBatch = JSON.parse(readFileSync(join(outDir, 'safe-tx.json'), 'utf8'));
+    // Each transaction's contractInputsValues should contain the on-chain stakedAmount
+    for (const tx of safeBatch.transactions) {
+      expect(tx.contractInputsValues.amount_).toBe(onChainStakedWei.toString());
+    }
+
+    logSpy.mockRestore();
+  });
+
+  it('explicit mode uses CSV stakedAmount in transaction, not on-chain', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    // On-chain has 10 OMA staked, CSV specifies 5 OMA and 1 OMA
+    mockCall.mockResolvedValue(encodeLockResult({ stakedAmount: 10000000000000000000n }));
+
+    await runSlashCommand('slashStake', [
+      '--csv', join(fixturesDir(), 'slash-stake-2-wallets.csv'),
+      '--to', '0x000000000000000000000000000000000000dEaD',
+      '--out-dir', outDir,
+      '--rpc-url', 'https://mock.example.com',
+    ]);
+
+    const safeBatch = JSON.parse(readFileSync(join(outDir, 'safe-tx.json'), 'utf8'));
+    // slash-stake-2-wallets.csv has 5000000000000000000 and 1000000000000000000
+    const amounts = safeBatch.transactions.map(
+      (tx: { contractInputsValues: { amount_: string } }) => tx.contractInputsValues.amount_,
+    );
+    expect(amounts).toContain('5000000000000000000');
+    expect(amounts).toContain('1000000000000000000');
+
+    logSpy.mockRestore();
+  });
+
+  it('slashStake errors on first wallet with zero staked on-chain', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    // First wallet (sorted by address): 0 staked, second: has staked
+    let callIndex = 0;
+    mockCall.mockImplementation(() => {
+      callIndex++;
+      if (callIndex === 1) {
+        return encodeLockResult({ stakedAmount: 0n });
+      }
+      return encodeLockResult({ stakedAmount: 5000000000000000000n });
+    });
+
+    await expect(
+      runSlashCommand('slashStake', [
+        '--csv', join(fixturesDir(), 'slash-stake-2-wallets.csv'),
+        '--to', '0x000000000000000000000000000000000000dEaD',
+        '--out-dir', outDir,
+        '--rpc-url', 'https://mock.example.com',
+      ]),
+    ).rejects.toThrow(/stakedAmount is 0 on-chain/);
 
     logSpy.mockRestore();
   });

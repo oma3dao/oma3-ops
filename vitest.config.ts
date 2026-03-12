@@ -7,7 +7,15 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/lock-add-locks.ts', 'src/lock-update-locks.ts', 'src/lock-slash.ts', 'src/lock-slash-stake.ts', 'src/lock-status.ts', 'src/lock-verify-json.ts', 'src/hash.ts'],
+      exclude: [
+        'src/lock-add-locks.ts',
+        'src/lock-update-locks.ts',
+        'src/lock-slash.ts',
+        'src/lock-slash-stake.ts',
+        'src/lock-status.ts',
+        'src/lock-verify-json.ts',
+        'src/hash.ts',
+      ],
       reporter: ['text', 'lcov'],
       reportsDirectory: 'coverage',
     },
