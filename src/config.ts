@@ -17,7 +17,7 @@ const NETWORKS: Record<NetworkName, NetworkConfig> = {
     name: 'sepolia',
     chainId: 11_155_111n,
     omaToken: getAddress('0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf'),
-    omaLock: getAddress('0x2f38D6cCB480d5C7e68d11b5a02f2c2451543F58'),
+    omaLock: getAddress('0xfD1410e3A80A0f311804a09C656d98a82B7c5d9f'),
   },
   mainnet: {
     name: 'mainnet',
