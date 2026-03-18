@@ -7,7 +7,7 @@ const { mockGetNetwork, mockCall } = vi.hoisted(() => ({
   mockCall: vi.fn(),
 }));
 
-const SEPOLIA_LOCK = '0x2f38D6cCB480d5C7e68d11b5a02f2c2451543F58';
+const SEPOLIA_LOCK = '0xfD1410e3A80A0f311804a09C656d98a82B7c5d9f';
 const SEPOLIA_OMA = '0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf';
 const coder = AbiCoder.defaultAbiCoder();
 

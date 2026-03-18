@@ -16,7 +16,7 @@
  * Set ADMIN_THIRDWEB_SECRET_KEY env var to skip the prompt.
  */
 
-import { createThirdwebClient, defineChain, getContract, prepareTransaction, Engine } from 'thirdweb';
+import { createThirdwebClient, defineChain, prepareTransaction, Engine } from 'thirdweb';
 import { eth_getBalance, getRpcClient } from 'thirdweb/rpc';
 import { formatEther } from 'ethers';
 import { parseCliArgs, getRequiredOption, getBooleanFlag, assertNoUnknownOptions } from '../cli-utils.js';
@@ -102,6 +102,7 @@ async function main(): Promise<void> {
   const { transactionHash } = await Engine.waitForTransactionHash({
     client,
     transactionId,
+    timeoutInSeconds: 60,
   });
   console.log(`Confirmed: ${transactionHash}`);
 

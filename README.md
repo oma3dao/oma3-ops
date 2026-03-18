@@ -18,7 +18,7 @@ No private keys are used by these scripts. No transactions are signed or submitt
 ### Sepolia (testnet)
 
 - OMA Token: `0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf`
-- OMALock: `0x2f38D6cCB480d5C7e68d11b5a02f2c2451543F58`
+- OMALock: `0xfD1410e3A80A0f311804a09C656d98a82B7c5d9f`
 
 ### Ethereum Mainnet
 
@@ -542,7 +542,7 @@ Minimal example:
   },
   "transactions": [
     {
-      "to": "0x2f38D6cCB480d5C7e68d11b5a02f2c2451543F58",
+      "to": "0xfD1410e3A80A0f311804a09C656d98a82B7c5d9f",
       "value": "0",
       "data": "0x...",
       "contractMethod": {
