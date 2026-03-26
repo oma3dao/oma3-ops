@@ -1,0 +1,53 @@
+{
+  "_comment": "Source of truth for authorized addresses across all OMA3 networks. Machine-readable. Consumed by check-wallet-sync and available to third-party verifiers via raw GitHub URL.",
+  "addresses": [
+    {
+      "address": "0x8e6aB187BD083b54156c6cF3a54351Eec4742319",
+      "label": "OMAchain Testnet Admin",
+      "owner": "oma3.org",
+      "vm": "eip155",
+      "environment": "testnet",
+      "roles": ["admin", "timelock-proposer", "timelock-executor"]
+    },
+    {
+      "address": "0x6f05D46cD048d3249F4Db6BAd6d06e2069BCD5eb",
+      "label": "OMAchain Testnet Attestation",
+      "owner": "oma3.org",
+      "vm": "eip155",
+      "environment": "testnet",
+      "roles": ["attestation", "issuer", "controller-witness"]
+    },
+    {
+      "address": "0x7D5beD223Bc343F114Aa28961Cc447dbbc9c2330",
+      "label": "Legacy testnet issuer (env var key)",
+      "owner": "oma3.org",
+      "vm": "eip155",
+      "environment": "testnet",
+      "roles": ["issuer"]
+    },
+    {
+      "address": "0x766910dc543034ce7a6525c1307c5b6fe92ebb0b",
+      "label": "Legacy testnet issuer (env var key)",
+      "owner": "oma3.org",
+      "vm": "eip155",
+      "environment": "testnet",
+      "roles": ["issuer"]
+    },
+    {
+      "address": "0xb7Fed03367a3c37a6e04E5f9AEF753916A538cdc",
+      "label": "OMAchain Mainnet Admin",
+      "owner": "oma3.org",
+      "vm": "eip155",
+      "environment": "mainnet",
+      "roles": ["admin", "timelock-proposer", "timelock-executor"]
+    },
+    {
+      "address": "0x96fa5ab5E519641bD8A840A6b26D17DB7497618b",
+      "label": "OMAchain Mainnet Attestation",
+      "owner": "oma3.org",
+      "vm": "eip155",
+      "environment": "mainnet",
+      "roles": ["attestation", "issuer", "controller-witness"]
+    }
+  ]
+}

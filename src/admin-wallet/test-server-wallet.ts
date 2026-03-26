@@ -9,11 +9,10 @@
  * 4. Sending a 0-value self-transfer to prove signing works
  *
  * Usage:
- *   npx tsx src/admin-wallet/test-server-wallet.ts --network testnet
- *   npx tsx src/admin-wallet/test-server-wallet.ts --network testnet --dry-run
+ *   npx tsx src/admin-wallet/test-server-wallet.ts --network omachainTestnet
+ *   npx tsx src/admin-wallet/test-server-wallet.ts --network omachainTestnet --dry-run
  *
  * The secret key is prompted interactively (never stored on disk).
- * Set ADMIN_THIRDWEB_SECRET_KEY env var to skip the prompt.
  */
 
 import { createThirdwebClient, defineChain, prepareTransaction, Engine } from 'thirdweb';
@@ -27,7 +26,7 @@ const ALLOWED_OPTIONS = new Set(['network', 'dry-run', 'help']);
 
 function printUsage(): void {
   console.log(`
-Usage: test-server-wallet --network <testnet|mainnet> [--dry-run]
+Usage: test-server-wallet --network <omachainTestnet|omachainMainnet> [--dry-run]
 
 Options:
   --network    Target network (required)

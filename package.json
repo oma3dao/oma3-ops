@@ -27,7 +27,14 @@
     "lock-status": "node --env-file=.env.local dist/lock-status.js",
     "lock-verify-json": "node --env-file=.env.local dist/lock-verify-json.js",
     "hash": "node dist/hash.js",
-    "admin:test-wallet": "npx tsx src/admin-wallet/test-server-wallet.ts"
+    "admin:test-wallet": "npx tsx src/admin-wallet/test-server-wallet.ts",
+    "admin:timelock-smoke-test": "npx tsx src/admin-wallet/timelock-smoke-test.ts",
+    "admin:timelock-smoke-execute": "npx tsx src/admin-wallet/timelock-smoke-execute.ts",
+    "admin:propose-resolver-add-issuer": "npx tsx src/admin-wallet/propose-resolver-add-issuer.ts",
+    "admin:propose-resolver-remove-issuer": "npx tsx src/admin-wallet/propose-resolver-remove-issuer.ts",
+    "admin:propose-registry-set-resolver": "npx tsx src/admin-wallet/propose-registry-set-resolver.ts",
+    "admin:propose-registry-set-require-attestation": "npx tsx src/admin-wallet/propose-registry-set-require-attestation.ts",
+    "admin:execute-proposal": "npx tsx src/admin-wallet/execute-proposal.ts"
   },
   "engines": {
     "node": ">=20"

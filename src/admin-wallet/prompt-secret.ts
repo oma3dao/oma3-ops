@@ -4,22 +4,15 @@
  * Reads the admin secret key from stdin with echo disabled.
  * Matches the behavior of SSH password prompts (nothing displayed while typing).
  *
- * Falls back to ADMIN_THIRDWEB_SECRET_KEY env var for non-interactive contexts.
+ * The secret key lives in Bitwarden only — never on disk, never in env vars.
  */
 
 import { execSync } from 'node:child_process';
 
 export async function promptSecretKey(): Promise<string> {
-  // Allow env var override for non-interactive contexts (CI, testing)
-  const envKey = process.env.ADMIN_THIRDWEB_SECRET_KEY;
-  if (envKey && envKey.trim() !== '') {
-    console.log('Using ADMIN_THIRDWEB_SECRET_KEY from environment.');
-    return envKey.trim();
-  }
-
   if (!process.stdin.isTTY) {
     throw new Error(
-      'No TTY available for interactive prompt. Set ADMIN_THIRDWEB_SECRET_KEY env var instead.',
+      'No TTY available for interactive prompt. Admin scripts must be run interactively.',
     );
   }
 

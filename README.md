@@ -1,37 +1,46 @@
 # oma3-ops
 
-Command-line tools for OMA3 representatives to interact with on-chain contracts (currently the OMALock contract). OMA3 uses Safe (Gnosis Safe) multisig for all admin operations, so these scripts serve as the front end for constructing Safe-compatible transactions and producing verification artifacts for reviewers.
+Command-line tools for OMA3 representatives to interact with on-chain contracts. OMA3 operates across two chains with different admin models:
 
-## How It Works
+| Chain        | Admin Model                        | Contracts                    |
+|--------------|------------------------------------|------------------------------|
+| Ethereum     | Safe (Gnosis Safe) multisig        | OMALock (token vesting)      |
+| OMAchain     | Thirdweb server wallets + Timelock | App registry, resolver, metadata |
+
+---
+
+## Part 1: Ethereum (Safe Multisig)
+
+All Ethereum operations use Safe (Gnosis Safe). Scripts generate transaction JSON files and verification artifacts. No private keys are used — Safe and hardware wallets are the only execution layer.
+
+### How It Works
 
 1. A proposer prepares a CSV of wallet addresses and lock parameters.
-2. The proposer runs a script (`lock-add-locks` or `lock-update-locks`) to generate a Safe-compatible transaction JSON file and a human-readable summary file.
+2. The proposer runs a script (`lock-add-locks` or `lock-update-locks`) to generate a Safe-compatible transaction JSON and a human-readable summary.
 3. The proposer imports the JSON into Safe Transaction Builder and verifies the calldata hashes.
-4. The proposer distributes the summary file to reviewers/signers via end-to-end encrypted communications.
-5. Reviewers open the pending transaction in Safe, compare the decoded details against the summary file, and approve.
+4. The proposer distributes the summary to reviewers via end-to-end encrypted communications.
+5. Reviewers open the pending transaction in Safe, compare decoded details against the summary, and approve.
 6. Once the signing threshold is met, the transaction is executed.
 
-No private keys are used by these scripts. No transactions are signed or submitted. Safe and hardware wallets are the only execution layer.
+### Networks and Contracts
 
-## Networks and Contracts
-
-### Sepolia (testnet)
+#### Sepolia (testnet)
 
 - OMA Token: `0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf`
 - OMALock: `0xfD1410e3A80A0f311804a09C656d98a82B7c5d9f`
 
-### Ethereum Mainnet
+#### Ethereum Mainnet
 
 - OMA Token: `0x36a72D42468eAffd5990Ddbd5056A0eC615B0bd4`
 - OMALock: `0x249d2cc7B23546c3dE8655c03263466B77344ee7`
 
 CLI defaults must match these values. The `--lock-contract` and `--oma-token` flags allow overrides when `--allow-address-override` is also provided.
 
-## Environment Setup
+### Environment Setup
 
 Scripts need an RPC endpoint for read-only on-chain calls (chain ID verification, token decimals, `getLock` queries). No transactions are signed or submitted.
 
-### RPC Configuration
+#### RPC Configuration
 
 Copy `.env.example` to `.env.local` and fill in your thirdweb Client ID:
 
@@ -48,15 +57,13 @@ OMA3_OPS_RPC_URL_MAINNET=https://1.rpc.thirdweb.com/<CLIENT_ID>
 
 The env file is loaded automatically via Node 20's `--env-file` flag when using the npm scripts (e.g. `npm run lock-status -- --wallet 0x...`). If running the compiled binaries directly, either export the env vars manually or use `node --env-file=.env.local dist/<command>.js`.
 
-### RPC URL Resolution Order
+#### RPC URL Resolution Order
 
 1. `--rpc-url` CLI flag (explicit override)
 2. `OMA3_OPS_RPC_URL_SEPOLIA` or `OMA3_OPS_RPC_URL_MAINNET` (network-specific env var)
 3. `OMA3_OPS_RPC_URL` (generic fallback env var)
 
----
-
-## Checking Lock Status (`lock-status`)
+### Checking Lock Status (`lock-status`)
 
 Read-only command that queries `getLock()` on-chain for one or more wallets and prints their lock status. This is the simplest way to inspect what's on-chain before generating any transactions.
 
@@ -73,32 +80,32 @@ lock-status --network mainnet --wallet 0xabc... --out status.json
 
 Exactly one of `--wallet` or `--csv` must be provided. `--wallet` accepts one or more space-separated addresses.
 
-### Parameters
+#### Parameters
 
-| Flag        | Required | Default   | Description                                                    |
-|-------------|----------|-----------|----------------------------------------------------------------|
-| `--network` | no       | `sepolia` | `mainnet` or `sepolia`                                         |
-| `--wallet`  | one of   | —         | One or more wallet addresses                                   |
-| `--csv`     | one of   | —         | CSV file with `address` column                                 |
-| `--out`     | no       | —         | Write JSON output to file (otherwise prints table to terminal) |
-| `--rpc-url` | no       | —         | Override RPC endpoint                                          |
+| Flag        | Required | Default   | Description                            |
+|-------------|----------|-----------|----------------------------------------|
+| `--network` | no       | `sepolia` | `mainnet` or `sepolia`                 |
+| `--wallet`  | one of   | —         | One or more wallet addresses           |
+| `--csv`     | one of   | —         | CSV file with `address` column         |
+| `--out`     | no       | —         | Write JSON output to file              |
+| `--rpc-url` | no       | —         | Override RPC endpoint                  |
 
-### Output Fields (per wallet)
+#### Output Fields (per wallet)
 
-| Field            | Description                                                                                      |
-|------------------|--------------------------------------------------------------------------------------------------|
-| `address`        | Wallet address (checksum)                                                                        |
-| `hasLock`        | Whether a lock record exists                                                                     |
-| `timestamp`      | Lock creation timestamp (unix + UTC)                                                             |
-| `cliffDate`      | Cliff date — vesting starts here (unix + UTC)                                                    |
-| `lockEndDate`    | Lock end date — 100% vested here (unix + UTC)                                                    |
-| `amount`         | Total locked amount (human + wei)                                                                |
-| `claimedAmount`  | Tokens already withdrawn via `claim()` (human + wei)                                             |
-| `stakedAmount`   | Tokens currently staked (human + wei)                                                            |
-| `slashedAmount`  | Tokens slashed by admin (human + wei)                                                            |
-| `unlockedAmount` | Total vested so far (human + wei). This is cumulative and includes tokens already claimed.       |
-| `claimable`      | Available to withdraw right now (human + wei). See formula below.                                |
-| `vestingProgress`| Percentage of total amount vested, e.g. `45.2%`                                                  |
+| Field            | Description                                          |
+|------------------|------------------------------------------------------|
+| `address`        | Wallet address (checksum)                            |
+| `hasLock`        | Whether a lock record exists                         |
+| `timestamp`      | Lock creation timestamp (unix + UTC)                 |
+| `cliffDate`      | Cliff date — vesting starts here (unix + UTC)        |
+| `lockEndDate`    | Lock end date — 100% vested here (unix + UTC)        |
+| `amount`         | Total locked amount (human + wei)                    |
+| `claimedAmount`  | Tokens already withdrawn via `claim()` (human + wei) |
+| `stakedAmount`   | Tokens currently staked (human + wei)                |
+| `slashedAmount`  | Tokens slashed by admin (human + wei)                |
+| `unlockedAmount` | Total vested so far (cumulative, human + wei)        |
+| `claimable`      | Available to withdraw right now (human + wei)        |
+| `vestingProgress`| Percentage of total amount vested, e.g. `45.2%`     |
 
 How these relate:
 
@@ -109,36 +116,34 @@ How these relate:
 
 Wallets without a lock record are reported with `hasLock: false` and all other fields as `N/A` (no error).
 
----
-
-## Generating Lock Write Transactions (`lock-add-locks` / `lock-update-locks`)
+### Generating Lock Transactions (`lock-add-locks` / `lock-update-locks`)
 
 Both commands follow the same flow: prepare a CSV, run the command, review the outputs, import into Safe, verify, distribute to reviewers, and execute.
 
 - `lock-add-locks` creates new locks. It encodes wallet addresses, amounts, cliff dates, and lock end dates into `addLocks()` calldata.
 - `lock-update-locks` modifies dates on existing locks. It encodes wallet addresses, cliff dates, and lock end dates into `updateLocks()` calldata. Amounts are not encoded into the transaction — the `amount` CSV column is required but exists only so reviewers can cross-reference that the correct wallets are being updated. The on-chain locked amount is not changed by `updateLocks`.
 
-### Step 1: Prepare the CSV
+#### Step 1: Prepare the CSV
 
 Create a CSV file with a header row. The scripts parse by header name, not column position.
 
 Required columns:
 
-| Column               | Format                                    | Description                                                |
-|----------------------|-------------------------------------------|------------------------------------------------------------|
-| `address`            | EVM checksum or lowercase hex             | Wallet address                                             |
-| `amount`             | Decimal human units (e.g. `1000`, `2500.5`) | OMA amount (not wei)                                     |
-| `cliffOffsetMonths`  | Integer >= 0                              | Calendar-month offset from anchor date to cliff            |
-| `lockEndOffsetMonths`| Integer > `cliffOffsetMonths`             | Calendar-month offset from anchor date to lock end         |
+| Column               | Format                | Description                            |
+|----------------------|-----------------------|----------------------------------------|
+| `address`            | EVM checksum or hex   | Wallet address                         |
+| `amount`             | Decimal (e.g. `1000`) | OMA amount (not wei)                   |
+| `cliffOffsetMonths`  | Integer >= 0          | Months from anchor date to cliff       |
+| `lockEndOffsetMonths`| Integer > cliff       | Months from anchor date to lock end    |
 
-- achor date is described in the Parameters section below
+- Anchor date is described in the Parameters section below.
 - `lockEndOffsetMonths` must be strictly greater than `cliffOffsetMonths`. The OMALock contract requires `lockEndDate > cliffDate`; equal values cause a revert.
 
 Optional column:
 
-| Column      | Format                                        | Description                                                                          |
-|-------------|-----------------------------------------------|--------------------------------------------------------------------------------------|
-| `amountWei` | Integer string (e.g. `1000000000000000000`)   | Cross-check only. Must equal `parseUnits(amount, 18)`. Any mismatch fails the run.  |
+| Column      | Format            | Description                                     |
+|-------------|-------------------|-------------------------------------------------|
+| `amountWei` | Integer string    | Cross-check only. Must match `parseUnits(amount, 18)`. |
 
 Example:
 
@@ -152,7 +157,7 @@ Unknown extra columns are ignored. V1 requires exact canonical header names (hea
 
 Before running the command, create a run archive folder and place the CSV in it. This keeps the input CSV alongside the generated output files for a complete audit trail. See the Run Archives section below for the naming convention.
 
-### Step 2: Run the Command
+#### Step 2: Run the Command
 
 ```bash
 # Add new locks
@@ -170,23 +175,23 @@ lock-update-locks \
   --out-dir data/runs/mainnet/2025-03-10-002-updateLocks
 ```
 
-### Parameters
+#### Parameters
 
-| Flag                   | Required | Default   | Description                                                                                        |
-|------------------------|----------|-----------|----------------------------------------------------------------------------------------------------|
-| `--network`            | no       | `sepolia` | `mainnet` or `sepolia`                                                                             |
-| `--anchor-date-utc`    | yes      | —         | ISO-8601 UTC datetime with `Z` suffix. Numeric timezone offsets (e.g. `+00:00`) are rejected.      |
-| `--csv`                | yes      | —         | Path to input CSV                                                                                  |
-| `--out-dir`            | yes      | —         | Directory for output files                                                                         |
-| `--max-wallets-per-tx` | no       | `200`     | Max wallets per transaction chunk                                                                  |
-| `--max-total-pct`      | no       | `10`      | Hard error if total OMA exceeds this % of total supply (333,333,333 OMA). Positive integer. `lock-add-locks` only.   |
-| `--warn-wallet-pct`    | no       | `1`       | Warning if any wallet exceeds this % of total supply. Positive integer. `lock-add-locks` only.                       |
-| `--require-amount-wei` | no       | `false`   | Require `amountWei` column on all rows                                                             |
-| `--rpc-url`            | no       | —         | Override RPC endpoint                                                                              |
+| Flag                   | Required | Default   | Description                                  |
+|------------------------|----------|-----------|----------------------------------------------|
+| `--network`            | no       | `sepolia` | `mainnet` or `sepolia`                       |
+| `--anchor-date-utc`    | yes      | —         | ISO-8601 UTC with `Z` suffix                 |
+| `--csv`                | yes      | —         | Path to input CSV                            |
+| `--out-dir`            | yes      | —         | Directory for output files                   |
+| `--max-wallets-per-tx` | no       | `200`     | Max wallets per transaction chunk            |
+| `--max-total-pct`      | no       | `10`      | Error if total OMA > this % of supply. `add` only. |
+| `--warn-wallet-pct`    | no       | `1`       | Warn if any wallet > this % of supply. `add` only. |
+| `--require-amount-wei` | no       | `false`   | Require `amountWei` column on all rows       |
+| `--rpc-url`            | no       | —         | Override RPC endpoint                        |
 
 The anchor date is the legal/commercial reference point (e.g. investment date, grant date) from which cliff and lock-end offsets are calculated. Each run supports exactly one anchor date. If wallets have different anchor dates, they must be processed in separate runs.
 
-### Step 3: Review the Outputs
+#### Step 3: Review the Outputs
 
 The command produces two files in `--out-dir`:
 
@@ -195,7 +200,7 @@ The command produces two files in `--out-dir`:
 
 Review the console output for any warnings (e.g. per-wallet allocations exceeding 1% of total supply).
 
-### Step 4: Import into Safe and Verify
+#### Step 4: Import into Safe and Verify
 
 1. Open Safe Transaction Builder at `safe.global`.
 2. Import `safe-tx.json`.
@@ -225,11 +230,11 @@ hash 0x6a627842
 # => 0x654347b7dc147d586800b07bed0ef8d31b06de26b3210a3e014f9445ad4bf8da
 ```
 
-### Step 5: Distribute to Reviewers
+#### Step 5: Distribute to Reviewers
 
 Send `safe-tx.summary.txt` (and optionally `safe-tx.json`) to reviewers/signers via end-to-end encrypted communications.
 
-### Step 6: Reviewer Verification
+#### Step 6: Reviewer Verification
 
 > _TODO: Add detailed field-by-field reviewer guidance with a worked example summary file and Safe UI screenshots._
 
@@ -242,11 +247,11 @@ Reviewers open the pending transaction in Safe (`safe.global` or the Safe mobile
 5. Optional: download `safe-tx.json` and verify SHA-256 against the summary file putting this in the command line: `shasum -a 256 safe-tx.json`.
 6. At least one reviewer should validate using the Safe mobile app.
 
-### Step 7: Approve and Execute
+#### Step 7: Approve and Execute
 
 Signers approve through Safe. Once the signing threshold is met, any signer can execute the transaction.
 
-### Verifying Known Locks (`lock-verify-json`)
+#### Verifying Known Locks (`lock-verify-json`)
 
 After transactions are executed on-chain, use `lock-verify-json` to reconcile the known-locks files (`data/sepolia-known-locks.json` and `data/mainnet-known-locks.json`) against actual on-chain state:
 
@@ -262,9 +267,98 @@ Reads `data/<network>-known-locks.json`, queries `getLock()` for each wallet, an
 - Lock exists but parameters differ → update fixture (auto-fix flag) or report mismatch (default)
 - No lock on-chain → remove from fixture (auto-fix flag) or report missing (default)
 
----
+### Slashing Locks (`lock-slash`)
 
-## Data Directory
+Generates Safe transactions that call `slash(address wallet_, address to_)` for each wallet. This deletes the lock record and transfers the remaining balance (`amount - claimedAmount - slashedAmount`) to the `--to` destination (typically the Safe/treasury). Tokens already claimed before slashing are not recoverable.
+
+The contract reverts with `AmountStaked` if a wallet has staked tokens. The script queries `getLock()` on-chain for each wallet before generating transactions and will hard-error if any wallet has `stakedAmount > 0`, listing the affected wallets and instructing the operator to run `lock-slash-stake` first.
+
+```bash
+lock-slash \
+  --network mainnet \
+  --csv data/runs/mainnet/2025-03-10-003-slash/input.csv \
+  --to 0xSafeTreasuryAddress \
+  --out-dir data/runs/mainnet/2025-03-10-003-slash
+```
+
+#### CSV Format
+
+| Column    | Format                        | Description      |
+|-----------|-------------------------------|------------------|
+| `address` | EVM checksum or lowercase hex | Wallet to slash  |
+
+#### Parameters
+
+| Flag                       | Required | Default   | Description                        |
+|----------------------------|----------|-----------|------------------------------------|
+| `--network`                | no       | `sepolia` | `mainnet` or `sepolia`             |
+| `--csv`                    | yes      | —         | CSV file with `address` column     |
+| `--to`                     | yes      | —         | Destination for recovered tokens   |
+| `--out-dir`                | yes      | —         | Directory for output files         |
+| `--rpc-url`                | no       | —         | Override RPC endpoint              |
+| `--lock-contract`          | no       | —         | Override OMALock (needs `--allow-address-override`) |
+| `--oma-token`              | no       | —         | Override OMA token (needs `--allow-address-override`) |
+| `--allow-address-override` | no       | `false`   | Allow contract address overrides   |
+
+#### Behavior
+
+- One `slash()` call per wallet → one Safe transaction per wallet in the batch.
+- Wallets are sorted by lowercase address for deterministic output.
+- If any wallet has no lock on-chain, the script errors.
+- If any wallet has `stakedAmount > 0`, the script errors with a clear message listing all affected wallets. `lock-slash-stake` must be run first for those wallets — these are separate governance decisions.
+
+#### Outputs
+
+`safe-tx.json` and `safe-tx.summary.txt` in `--out-dir`, following the same patterns as other write commands.
+
+### Slashing Staked Tokens (`lock-slash-stake`)
+
+Generates Safe transactions that call `slashStake(address wallet_, uint96 amount_, address to_)` for each wallet. This reduces the wallet's `stakedAmount` and transfers the slashed tokens to `--to`. The lock record is preserved (not deleted).
+
+The script queries `getLock()` on-chain for each wallet to read the current `stakedAmount`. By default, the full `stakedAmount` is slashed. To slash a partial amount, include a `stakedAmount` column in the CSV with the wei value to slash.
+
+```bash
+# Slash full staked amount for each wallet
+lock-slash-stake \
+  --network mainnet \
+  --csv data/runs/mainnet/2025-03-10-004-slashStake/input.csv \
+  --to 0xSafeTreasuryAddress \
+  --out-dir data/runs/mainnet/2025-03-10-004-slashStake
+```
+
+#### CSV Format
+
+| Column         | Format          | Required | Description                          |
+|----------------|-----------------|----------|--------------------------------------|
+| `address`      | EVM checksum    | yes      | Wallet to slash stake from           |
+| `stakedAmount` | Integer wei     | no       | Partial amount (omit for full slash) |
+
+#### Parameters
+
+| Flag                       | Required | Default   | Description                        |
+|----------------------------|----------|-----------|------------------------------------|
+| `--network`                | no       | `sepolia` | `mainnet` or `sepolia`             |
+| `--csv`                    | yes      | —         | CSV file with `address` column     |
+| `--to`                     | yes      | —         | Destination for slashed tokens     |
+| `--out-dir`                | yes      | —         | Directory for output files         |
+| `--rpc-url`                | no       | —         | Override RPC endpoint              |
+| `--lock-contract`          | no       | —         | Override OMALock (needs `--allow-address-override`) |
+| `--oma-token`              | no       | —         | Override OMA token (needs `--allow-address-override`) |
+| `--allow-address-override` | no       | `false`   | Allow contract address overrides   |
+
+#### Behavior
+
+- One `slashStake()` call per wallet → one Safe transaction per wallet in the batch.
+- Wallets are sorted by lowercase address for deterministic output.
+- If any wallet has no lock on-chain, the script errors.
+- If any wallet has `stakedAmount == 0` on-chain, the script errors (nothing to slash).
+- If a CSV `stakedAmount` exceeds the on-chain `stakedAmount`, the script errors.
+
+#### Outputs
+
+`safe-tx.json` and `safe-tx.summary.txt` in `--out-dir`, following the same patterns as other write commands.
+
+### Data Directory
 
 The `data/` directory stores operational reference data and run archives.
 
@@ -285,7 +379,7 @@ data/
         safe-tx.summary.txt
 ```
 
-### Known Lock Files
+#### Known Lock Files
 
 `<network>-known-locks.json` — JSON array of wallet lock records, newest first. Automatically maintained by `lock-add-locks`, `lock-update-locks`, and `lock-verify-json`.
 
@@ -294,7 +388,7 @@ data/
 - Each entry includes a `source` field that traces it back to the run that created it (e.g. `addLocks:9f2c1e4b7a21`, where the suffix is the short batch fingerprint). This lets you find the corresponding run archive in `data/runs/` to review the original CSV and summary.
 - Entries represent expected state (updated at generation time, before Safe execution). Use `lock-verify-json` to reconcile against on-chain state after execution.
 
-### Run Archives
+#### Run Archives
 
 Each run should be archived using the naming convention:
 
@@ -310,98 +404,249 @@ Place the input CSV in the folder first, then point both `--csv` and `--out-dir`
 
 ---
 
-## Slashing Locks (`lock-slash`)
+## Part 2: OMAchain (Server Wallets + Timelock)
 
-Generates Safe transactions that call `slash(address wallet_, address to_)` for each wallet. This deletes the lock record and transfers the remaining balance (`amount - claimedAmount - slashedAmount`) to the `--to` destination (typically the Safe/treasury). Tokens already claimed before slashing are not recoverable.
+OMAchain does not support Safe.global — the Safe UI and transaction service infrastructure are not available. Admin operations use Thirdweb server wallets paired with an OpenZeppelin TimelockController. See the Architecture Background section at the end of this document for the security model and threat analysis.
 
-The contract reverts with `AmountStaked` if a wallet has staked tokens. The script queries `getLock()` on-chain for each wallet before generating transactions and will hard-error if any wallet has `stakedAmount > 0`, listing the affected wallets and instructing the operator to run `lock-slash-stake` first.
+> This section covers ongoing admin operations. For initial deployment and timelock setup, see `app-registry-evm-solidity/tasks/deploy/README.md`.
+
+### How It Works
+
+1. An admin runs a script from `src/admin-wallet/` (e.g. `timelock-smoke-test.ts`).
+2. The script prompts for the Thirdweb admin secret key (pasted from Bitwarden).
+3. The script sends the transaction to the Thirdweb server wallet, which signs it in the Vault enclave and submits the timelock proposal on-chain.
+4. After the delay (24h testnet / 5 days mainnet), the admin runs the execute script.
+5. The timelock executes the operation on the target contract.
+
+### Networks and Contracts
+
+#### OMAchain Testnet (Chain ID: 66238)
+
+- TimelockController: `0x8A4434930ef47bCaDE48e45a9979540FA839D18E`
+- Admin Wallet: `0x8e6aB187BD083b54156c6cF3a54351Eec4742319`
+- Timelock delay: 24 hours
+
+#### OMAchain Mainnet (Chain ID: 6623)
+
+- TimelockController: not yet deployed
+- Admin Wallet: `0xb7Fed03367a3c37a6e04E5f9AEF753916A538cdc`
+- Timelock delay: 5 days (when deployed)
+
+App registry, metadata, and resolver contract addresses are managed in `app-registry-evm-solidity/contract-addresses.txt`.
+
+### Admin Scripts (`src/admin-wallet/`)
+
+Scripts for managing OMAchain contracts via the Thirdweb admin server wallet and TimelockController.
+
+<!-- SYNC: Script names and npm aliases are also referenced in app-registry-evm-solidity/tasks/deploy/README.md (Phase B Step 6, Upgrading sections). Update both when renaming scripts. -->
+
+#### Scripts
+
+| Script                                        | npm alias                                        | Purpose                                        |
+|-----------------------------------------------|--------------------------------------------------|------------------------------------------------|
+| `test-server-wallet.ts`                       | `admin:test-wallet`                              | Balance check + 0-value self-transfer          |
+| `timelock-smoke-test.ts`                      | `admin:timelock-smoke-test`                      | Role checks, negative test, schedule proposal  |
+| `timelock-smoke-execute.ts`                   | `admin:timelock-smoke-execute`                   | Execute smoke test proposal after delay.       |
+| `propose-resolver-add-issuer.ts`              | `admin:propose-resolver-add-issuer`              | Add authorized issuer to resolver              |
+| `propose-resolver-remove-issuer.ts`           | `admin:propose-resolver-remove-issuer`           | Remove authorized issuer from resolver         |
+| `propose-registry-set-resolver.ts`            | `admin:propose-registry-set-resolver`            | Set resolver address on registry               |
+| `propose-registry-set-require-attestation.ts` | `admin:propose-registry-set-require-attestation` | Enable/disable dataUrl attestation requirement |
+| `execute-proposal.ts`                         | `admin:execute-proposal`                         | Execute any pending timelock proposal          |
+| `check-tx-status.ts`                          | TBD                                              | Poll Thirdweb tx ID until complete             |
+
+#### Configuration
+
+Wallet addresses and public RPC endpoints are in `src/admin-wallet/config.ts`. Addresses are public and safe to commit.
+
+The admin secret key is never stored on disk. It is prompted interactively via `src/admin-wallet/prompt-secret.ts` (uses `stty -echo` to suppress terminal echo). Admin scripts must be run interactively — there is no env var fallback.
+
+The admin wallet's `THIRDWEB_SECRET_KEY` lives in Bitwarden only. It is never:
+- Stored in a `.env` file
+- Set as a Vercel environment variable
+- Written to disk in any form
+- Echoed to the terminal or saved to shell history
+
+When running admin scripts, the operator pastes the key from Bitwarden at the interactive prompt. The key is held only in process memory for the duration of the script.
+
+#### Usage
+
+##### Smoke Tests
+
+<!-- SYNC: Smoke test commands also documented in app-registry-evm-solidity/tasks/deploy/README.md Phase A Steps 4 and 10. Update both when changing flags or script names. -->
+
+Used during initial deployment to verify the timelock works. See `app-registry-evm-solidity/tasks/deploy/README.md` Steps 4 and 10.
 
 ```bash
-lock-slash \
-  --network mainnet \
-  --csv data/runs/mainnet/2025-03-10-003-slash/input.csv \
-  --to 0xSafeTreasuryAddress \
-  --out-dir data/runs/mainnet/2025-03-10-003-slash
+# Test wallet connectivity (prompts for secret key)
+npm run admin:test-wallet -- --network omachainTestnet
+
+# Run timelock smoke test (schedule a proposal)
+npm run admin:timelock-smoke-test -- \
+  --network omachainTestnet \
+  --timelock 0x8A4434930ef47bCaDE48e45a9979540FA839D18E \
+  --admin 0x8e6aB187BD083b54156c6cF3a54351Eec4742319
+
+# Execute smoke test proposal after delay
+npm run admin:timelock-smoke-execute -- \
+  --network omachainTestnet \
+  --timelock 0x8A4434930ef47bCaDE48e45a9979540FA839D18E \
+  --operation-id <operation-id-from-smoke-test> \
+  --salt <salt-from-smoke-test>
+
+# Check transaction status (no npm alias)
+npx tsx src/admin-wallet/check-tx-status.ts --tx-id <thirdweb-tx-id>
 ```
 
-### CSV Format
+##### Admin Operations (Propose → Wait → Execute)
 
-| Column    | Format                        | Description      |
-|-----------|-------------------------------|------------------|
-| `address` | EVM checksum or lowercase hex | Wallet to slash  |
+<!-- SYNC: Propose/execute examples also documented in app-registry-evm-solidity/tasks/deploy/README.md Phase B Step 6 and Upgrading sections. Update both when changing flags or script names. -->
 
-### Parameters
+These are the real admin scripts used after ownership has been transferred to the timelock. Each propose script encodes a contract call, wraps it in a `TimelockController.schedule()` call, and submits via the admin server wallet. After the delay (24h testnet / 5 days mainnet), run `execute-proposal` to execute.
 
-| Flag                       | Required | Default   | Description                                      |
-|----------------------------|----------|-----------|--------------------------------------------------|
-| `--network`                | no       | `sepolia` | `mainnet` or `sepolia`                           |
-| `--csv`                    | yes      | —         | CSV file with `address` column                   |
-| `--to`                     | yes      | —         | Destination address for recovered tokens         |
-| `--out-dir`                | yes      | —         | Directory for output files                       |
-| `--rpc-url`                | no       | —         | Override RPC endpoint                            |
-| `--lock-contract`          | no       | —         | Override OMALock address (requires `--allow-address-override`) |
-| `--oma-token`              | no       | —         | Override OMA token address (requires `--allow-address-override`) |
-| `--allow-address-override` | no       | `false`   | Allow `--lock-contract` / `--oma-token` overrides |
+On devnet (no timelock configured), the scripts require `--direct-call` to bypass governance and call the contract directly using the deployment key from `~/.ssh/test-evm-deployment-key`. Without `--direct-call`, the scripts will error if no timelock is configured.
 
-### Behavior
+```bash
+# Add an authorized issuer to the resolver
+npm run admin:propose-resolver-add-issuer -- \
+  --network omachainTestnet \
+  --issuer 0x7F16C09c3FDA956dD0CC3E21820E691EdD44B319
 
-- One `slash()` call per wallet → one Safe transaction per wallet in the batch.
-- Wallets are sorted by lowercase address for deterministic output.
-- If any wallet has no lock on-chain, the script errors.
-- If any wallet has `stakedAmount > 0`, the script errors with a clear message listing all affected wallets. `lock-slash-stake` must be run first for those wallets — these are separate governance decisions.
+# Remove an authorized issuer
+npm run admin:propose-resolver-remove-issuer -- \
+  --network omachainTestnet \
+  --issuer 0x7F16C09c3FDA956dD0CC3E21820E691EdD44B319
 
-### Outputs
+# Set a resolver on the registry (type: ownership, dataurl, or registration)
+npm run admin:propose-registry-set-resolver -- \
+  --network omachainTestnet \
+  --type ownership \
+  --resolver 0xDc120C00E62822329A4d8C7808f5a43C9CbfC1f8
 
-`safe-tx.json` and `safe-tx.summary.txt` in `--out-dir`, following the same patterns as other write commands.
+# Enable/disable dataUrl attestation requirement
+npm run admin:propose-registry-set-require-attestation -- \
+  --network omachainTestnet \
+  --require true
+```
+
+Each propose script prints the values needed for execution:
+
+```
+=== PROPOSAL SUBMITTED ===
+Operation ID:     0xabc123...
+Salt:             0xdef456...
+Target:           0xDc120C00E62822329A4d8C7808f5a43C9CbfC1f8
+Calldata:         0x789...
+Earliest execute: 2026-03-25T18:00:00.000Z
+
+To execute after the delay:
+  npm run admin:execute-proposal -- \
+    --network omachainTestnet \
+    --target 0xDc120C00E62822329A4d8C7808f5a43C9CbfC1f8 \
+    --calldata 0x789... \
+    --salt 0xdef456...
+```
+
+After the delay has elapsed, copy-paste the execute command from the propose output:
+
+```bash
+npm run admin:execute-proposal -- \
+  --network omachainTestnet \
+  --target 0xDc120C00E62822329A4d8C7808f5a43C9CbfC1f8 \
+  --calldata 0x789... \
+  --salt 0xdef456...
+```
+
+The execute script computes the operation ID from the parameters, checks that the delay has elapsed, and executes via the admin server wallet.
+
+##### Contract Addresses
+
+The propose scripts read contract addresses from `src/admin-wallet/config.ts`. When contracts are deployed or redeployed, update the addresses there. The config also stores the timelock address per network — if absent, the scripts require `--direct-call` to proceed (devnet only).
+
+For the full deployment workflow (timelock deployment, ownership transfer, issuer management), see `app-registry-evm-solidity/tasks/deploy/README.md`.
 
 ---
 
-## Slashing Staked Tokens (`lock-slash-stake`)
+## Architecture Background
 
-Generates Safe transactions that call `slashStake(address wallet_, uint96 amount_, address to_)` for each wallet. This reduces the wallet's `stakedAmount` and transfers the slashed tokens to `--to`. The lock record is preserved (not deleted).
+This section covers the security model, threat analysis, and design rationale for the OMAchain admin architecture. Most operators can skip this — it's here for auditors, security reviewers, and anyone evaluating the trust model.
 
-The script queries `getLock()` on-chain for each wallet to read the current `stakedAmount`. By default, the full `stakedAmount` is slashed. To slash a partial amount, include a `stakedAmount` column in the CSV with the wei value to slash.
+### Why Server Wallets on OMAchain
 
-```bash
-# Slash full staked amount for each wallet
-lock-slash-stake \
-  --network mainnet \
-  --csv data/runs/mainnet/2025-03-10-004-slashStake/input.csv \
-  --to 0xSafeTreasuryAddress \
-  --out-dir data/runs/mainnet/2025-03-10-004-slashStake
-```
+Safe.global's UI and transaction service are not available on OMAchain. The Safe contracts could be deployed, but without the UI, operating a multisig is impractical for routine operations.
 
-### CSV Format
+MPC wallets (Fireblocks, Lit Protocol) are the long-term target. Fireblocks is enterprise-priced and may not support OMAchain. Lit Protocol adds operational complexity for a small team.
 
-| Column         | Format                        | Required | Description                                                        |
-|----------------|-------------------------------|----------|--------------------------------------------------------------------|
-| `address`      | EVM checksum or lowercase hex | yes      | Wallet to slash stake from                                         |
-| `stakedAmount` | Integer wei string            | no       | Partial amount to slash (wei). Omit or leave blank for full slash. |
+Thirdweb server wallets are the intermediate solution that eliminates raw private keys now. The admin wallet will migrate to MPC when a viable option supports OMAchain. The attestation wallet can stay on Thirdweb indefinitely.
 
-### Parameters
+### Thirdweb Server Wallet Security Model
 
-| Flag                       | Required | Default   | Description                                      |
-|----------------------------|----------|-----------|--------------------------------------------------|
-| `--network`                | no       | `sepolia` | `mainnet` or `sepolia`                           |
-| `--csv`                    | yes      | —         | CSV file with `address` column                   |
-| `--to`                     | yes      | —         | Destination address for slashed tokens           |
-| `--out-dir`                | yes      | —         | Directory for output files                       |
-| `--rpc-url`                | no       | —         | Override RPC endpoint                            |
-| `--lock-contract`          | no       | —         | Override OMALock address (requires `--allow-address-override`) |
-| `--oma-token`              | no       | —         | Override OMA token address (requires `--allow-address-override`) |
-| `--allow-address-override` | no       | `false`   | Allow `--lock-contract` / `--oma-token` overrides |
+Thirdweb server wallets store the signing private key inside Thirdweb Vault, a secure enclave. The key never leaves the enclave — all signing happens inside it. Backend services authenticate using a project-level secret key (`THIRDWEB_SECRET_KEY`), which is not the signing key itself.
 
-### Behavior
+| Credential            | What It Is                     | Rotation                          |
+|-----------------------|--------------------------------|-----------------------------------|
+| `THIRDWEB_SECRET_KEY` | API auth key (project-level)   | Rotatable instantly in dashboard; wallet address unchanged |
+| Signing private key   | Sealed in Vault (enclave)      | Never exposed, never needed       |
 
-- One `slashStake()` call per wallet → one Safe transaction per wallet in the batch.
-- Wallets are sorted by lowercase address for deterministic output.
-- If any wallet has no lock on-chain, the script errors.
-- If any wallet has `stakedAmount == 0` on-chain, the script errors (nothing to slash).
-- If a CSV `stakedAmount` exceeds the on-chain `stakedAmount`, the script errors.
+If the `THIRDWEB_SECRET_KEY` is compromised:
 
-### Outputs
+1. Rotate the key in the Thirdweb dashboard — the old key stops working instantly.
+2. The attacker loses signing authority the moment the key is rotated.
+3. Malicious proposals already submitted to the timelock can be detected during the delay window (monitor `CallScheduled` events) and the key rotated before execution.
+4. To prevent rotation, the attacker would need to compromise the Thirdweb dashboard account itself (not just the API key).
 
-`safe-tx.json` and `safe-tx.summary.txt` in `--out-dir`, following the same patterns as other write commands.
+### Two-Wallet Architecture
+
+OMA3 uses two Thirdweb server wallets in separate Thirdweb projects:
+
+| Wallet       | Thirdweb Project       | Role                          | Secret Key Location  |
+|--------------|------------------------|-------------------------------|----------------------|
+| Attestation  | `oma3-frontend`        | Signs attestations (witness, DID, EAS) | Vercel env vars |
+| Admin        | `oma3-contract-admin`  | Timelock proposals and executions | Bitwarden only    |
+
+Separate projects mean a compromised Vercel secret key (attestation project) cannot access admin functions. Each project has its own `THIRDWEB_SECRET_KEY`. Both are controlled by the same Thirdweb dashboard account.
+
+Mainnet has its own pair of server wallets. Testnet and devnet share another pair.
+
+#### Compromise Impact
+
+| Compromised Wallet | Damage                              | Recovery                          |
+|--------------------|-------------------------------------|-----------------------------------|
+| Attestation        | Can forge attestations. Cannot touch contract admin. | Rotate Vercel secret key. Remove as issuer via timelock. |
+| Admin              | Can propose malicious timelock ops. | Rotate Bitwarden secret key. Detect during delay window. |
+
+### TimelockController
+
+An OpenZeppelin TimelockController sits between the admin wallet and the OMAchain contracts. All admin operations go through propose → wait → execute.
+
+| Parameter | Testnet  | Mainnet |
+|-----------|----------|---------|
+| Delay     | 24 hours | 5 days  |
+
+The admin wallet holds `PROPOSER_ROLE` and `EXECUTOR_ROLE`. The timelock is self-administered (`DEFAULT_ADMIN_ROLE` held by the timelock itself). No one can grant or revoke roles without going through the timelock's own delay.
+
+The timelock's value is detection time — the delay window gives you time to notice an unexpected proposal (monitor `CallScheduled` events) and rotate the secret key before execution.
+
+The timelock is also the stable anchor for future wallet migrations. When MPC is ready, grant `PROPOSER_ROLE` to the MPC wallet and revoke it from the server wallet — no contract ownership transfer needed.
+
+### OMAchain Contract Admin Threat Model
+
+The contract admin (owner) on OMAchain can perform irreversible or high-damage operations:
+
+- `addAuthorizedIssuer` / `removeAuthorizedIssuer` — controls who can forge attestations
+- `setOwnershipResolver` / `setDataUrlResolver` / `setRegistrationResolver` — redirects validation
+- `setRequireDataUrlAttestation` — disables integrity checks
+- `transferOwnership` — permanent loss of control
+
+A compromised admin wallet can add a malicious issuer, which can then forge ownership attestations and hijack any DID in the registry. The timelock delay is the mitigation — all these operations must wait 24h (testnet) or 5 days (mainnet) before executing, giving time to detect and respond.
+
+### Ethereum Admin Threat Model
+
+On Ethereum, the OMALock contract holds the OMA3 treasury and manages token vesting for all locked participants. The admin Safe holds `SLASH_ROLE` and `STAKE_ROLE`, which can:
+
+- `slash` — delete a lock record and transfer remaining tokens to a destination address
+- `slashStake` — reduce a wallet's staked amount and transfer slashed tokens
+
+A compromised Safe could slash all locks and drain the treasury. The mitigation is the Safe multisig threshold — multiple hardware wallet signers must approve every transaction. No single compromised signer can execute.
 
 ---
 
@@ -522,7 +767,7 @@ Importable directly in Safe Transaction Builder UI (`safe.global`).
 - `meta.txBuilderVersion`: `"1.x"`
 - `meta.createdFromSafeAddress`: `""` (empty)
 - `meta.createdFromOwnerAddress`: `""` (empty)
-- `transactions`: An array of blockchain transactions. Each transaction in the array has the following fields: `to` = OMALock address, `value` = `"0"`, `data` = ABI-encoded calldata, `contractMethod` with canonical input schema, `contractInputsValues` string map.
+- `transactions`: array of transactions, each with `to` = OMALock address, `value` = `"0"`, `data` = ABI-encoded calldata, `contractMethod` with canonical input schema, `contractInputsValues` string map.
 - Transactions appear in deterministic group/chunk order.
 
 Minimal example:
@@ -591,7 +836,9 @@ JSON SHA256:
 Batch Fingerprint:
 
 TRANSACTIONS
-- tx 1: method=addLocks cliffUnix=... cliffUtc=... lockEndUnix=... lockEndUtc=... wallets=... totalOMA=... totalWei=... firstWallet=... lastWallet=... calldataHash=0x...
+- tx 1: method=addLocks cliffUnix=... cliffUtc=... lockEndUnix=...
+         lockEndUtc=... wallets=... totalOMA=... totalWei=...
+         firstWallet=... lastWallet=... calldataHash=0x...
 - tx 2: ...
 
 VALIDATION
@@ -601,8 +848,10 @@ VALIDATION
 - timestamp format: pass
 
 WARNINGS
-- WARNING: --max-total-pct set to 50 (default: 10). Verify this override is authorized.
-- WARNING: --warn-wallet-pct set to 5 (default: 1). Verify this override is authorized.
+- WARNING: --max-total-pct set to 50 (default: 10).
+  Verify this override is authorized.
+- WARNING: --warn-wallet-pct set to 5 (default: 1).
+  Verify this override is authorized.
 - 0x5E77...1615: allocated 5,000,000.0 OMA (1.50% of total supply)
 - (or "None" if no warnings)
 ```
