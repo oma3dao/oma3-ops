@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -28,6 +28,7 @@ function runVerifyJson(args: string[], env?: Record<string, string>): string {
     encoding: 'utf8',
     env: { ...process.env, OMA3_OPS_RPC_URL_SEPOLIA: RPC_URL, ...env },
     timeout: 60000,
+    shell: true,
   });
 }
 
@@ -39,11 +40,13 @@ function runVerifyJsonExpectError(args: string[]): string {
       env: { ...process.env, OMA3_OPS_RPC_URL_SEPOLIA: RPC_URL },
       timeout: 60000,
       stdio: ['pipe', 'pipe', 'pipe'],
+      shell: true,
     });
     throw new Error('Expected command to fail');
   } catch (err: unknown) {
     const error = err as ExecError;
-    return (error.stderr ?? '') + (error.stdout ?? '');
+    const output = (error.stderr ?? '') + (error.stdout ?? '');
+    return output || (error.message ?? '');
   }
 }
 
@@ -93,12 +96,23 @@ describeIf('lock-verify-json integration', () => {
   });
 
   it('RPC chain ID mismatch', () => {
-    const output = runVerifyJsonExpectError([
-      '--network', 'mainnet',
-      '--rpc-url', RPC_URL!,
-    ]);
+    const mainnetFixturePath = resolve(process.cwd(), 'data', 'mainnet-known-locks.json');
+    const savedMainnet = readFileSync(mainnetFixturePath, 'utf8');
+    try {
+      writeFileSync(mainnetFixturePath, JSON.stringify([{
+        address: '0x0000000000000000000000000000000000000001',
+        amount: '1.0', cliffDate: 1700000000, lockEndDate: 1800000000, source: 'test',
+      }]) + '\n', 'utf8');
 
-    expect(output.toLowerCase()).toContain('chain id mismatch');
+      const output = runVerifyJsonExpectError([
+        '--network', 'mainnet',
+        '--rpc-url', RPC_URL!,
+      ]);
+
+      expect(output.toLowerCase()).toContain('chain id mismatch');
+    } finally {
+      writeFileSync(mainnetFixturePath, savedMainnet, 'utf8');
+    }
   });
 
   it('empty fixture file exits cleanly', () => {
@@ -233,5 +247,114 @@ describeIf('lock-verify-json integration', () => {
     ]);
 
     expect(output).toMatch(/Results: \d+ OK, \d+ mismatch, \d+ missing/);
+  });
+
+  it('amount mismatch detected', () => {
+    const entries = JSON.parse(originalFixtureContent) as Array<Record<string, unknown>>;
+    entries[0]!.amount = '999999.0';
+    writeFileSync(fixturePath, JSON.stringify(entries, null, 2) + '\n', 'utf8');
+
+    const output = runVerifyJson([
+      '--network', 'sepolia',
+      '--rpc-url', RPC_URL!,
+      '--dry-run',
+    ]);
+
+    expect(output).toContain('MISMATCH');
+    expect(output).toContain('amount');
+  });
+
+  it('lockEndDate mismatch detected', () => {
+    const entries = JSON.parse(originalFixtureContent) as Array<Record<string, unknown>>;
+    entries[0]!.lockEndDate = 8888888;
+    writeFileSync(fixturePath, JSON.stringify(entries, null, 2) + '\n', 'utf8');
+
+    const output = runVerifyJson([
+      '--network', 'sepolia',
+      '--rpc-url', RPC_URL!,
+      '--dry-run',
+    ]);
+
+    expect(output).toContain('MISMATCH');
+    expect(output).toContain('lockEndDate');
+  });
+
+  it('multiple mismatches in one entry', () => {
+    const entries = JSON.parse(originalFixtureContent) as Array<Record<string, unknown>>;
+    entries[0]!.cliffDate = 9999999;
+    entries[0]!.lockEndDate = 8888888;
+    writeFileSync(fixturePath, JSON.stringify(entries, null, 2) + '\n', 'utf8');
+
+    const output = runVerifyJson([
+      '--network', 'sepolia',
+      '--rpc-url', RPC_URL!,
+      '--dry-run',
+    ]);
+
+    expect(output).toContain('MISMATCH');
+    expect(output).toContain('cliffDate');
+    expect(output).toContain('lockEndDate');
+  });
+
+  it('auto-fix preserves entry order', () => {
+    const entries = JSON.parse(originalFixtureContent) as Array<Record<string, unknown>>;
+    const entryCount = entries.length;
+    expect(entryCount).toBeGreaterThanOrEqual(3);
+
+    const middleIndex = Math.floor(entryCount / 2);
+    entries[middleIndex]!.cliffDate = 9999999;
+    writeFileSync(fixturePath, JSON.stringify(entries, null, 2) + '\n', 'utf8');
+
+    runVerifyJson([
+      '--network', 'sepolia',
+      '--rpc-url', RPC_URL!,
+      '--auto-fix',
+    ]);
+
+    const afterEntries = JSON.parse(readFileSync(fixturePath, 'utf8')) as Array<Record<string, unknown>>;
+
+    const okEntries = afterEntries.filter((_, i) => i !== middleIndex);
+    const originalOkEntries = JSON.parse(originalFixtureContent)
+      .filter((_: unknown, i: number) => i !== middleIndex) as Array<Record<string, unknown>>;
+
+    for (let i = 0; i < okEntries.length; i++) {
+      expect(okEntries[i]!.address, `entry ${i} address preserved`).toBe(originalOkEntries[i]!.address);
+    }
+  });
+
+  it('auto-fix removes missing and updates mismatched in one pass', () => {
+    const entries = JSON.parse(originalFixtureContent) as Array<Record<string, unknown>>;
+    const originalCount = entries.length;
+
+    entries[0]!.cliffDate = 9999999;
+
+    entries.push({
+      address: '0x0000000000000000000000000000000000000099',
+      amount: '1.0',
+      cliffDate: 1700000000,
+      lockEndDate: 1800000000,
+      source: 'test:fake',
+    });
+    writeFileSync(fixturePath, JSON.stringify(entries, null, 2) + '\n', 'utf8');
+
+    const output = runVerifyJson([
+      '--network', 'sepolia',
+      '--rpc-url', RPC_URL!,
+      '--auto-fix',
+    ]);
+
+    expect(output).toContain('MISMATCH');
+    expect(output).toContain('MISSING');
+    expect(output).toContain('Fixture updated');
+
+    const afterEntries = JSON.parse(readFileSync(fixturePath, 'utf8')) as Array<Record<string, unknown>>;
+    expect(afterEntries).toHaveLength(originalCount);
+
+    expect(afterEntries[0]!.source).toMatch(/^verified:/);
+
+    const fakeAddr = afterEntries.find(
+      (e) => (e.address as string).toLowerCase() === '0x0000000000000000000000000000000000000099',
+    );
+    expect(fakeAddr, 'fake missing entry should be removed').toBeUndefined();
   });
 });

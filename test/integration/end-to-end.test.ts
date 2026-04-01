@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import { runLockCommand } from '../../src/run-lock-command.js';
 import { keccakHexBytes, batchFingerprint } from '../../src/hash-utils.js';
 import { assertNoUnknownOptions } from '../../src/cli-utils.js';
+import { loadFixtures } from '../../src/known-locks.js';
 
 const RPC_URL = process.env.OMA3_OPS_RPC_URL_SEPOLIA;
 
@@ -45,14 +46,20 @@ function makeArgs(overrides: Record<string, string | undefined> = {}): string[] 
   return args;
 }
 
+const knownLocksPath = resolve(process.cwd(), 'data', 'sepolia-known-locks.json');
+
 describeIf('end-to-end integration', () => {
+  let savedKnownLocks: string;
+
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'e2e-test-'));
     outDir = join(tmpDir, 'output');
+    savedKnownLocks = readFileSync(knownLocksPath, 'utf8');
   });
 
   afterEach(() => {
     rmSync(tmpDir, { recursive: true, force: true });
+    writeFileSync(knownLocksPath, savedKnownLocks, 'utf8');
   });
 
   it('basic addLocks generation: 3-wallet CSV', async () => {
@@ -103,7 +110,7 @@ describeIf('end-to-end integration', () => {
 
   it('updateLocks generation', async () => {
     await runLockCommand('updateLocks', makeArgs({
-      '--csv': join(fixturesDir(), 'valid-2-wallets.csv'),
+      '--csv': join(fixturesDir(), 'valid-2-wallets-with-lock.csv'),
     }));
 
     const jsonPath = join(outDir, 'safe-tx.json');
@@ -264,5 +271,230 @@ describeIf('end-to-end integration', () => {
 
     const files = existsSync(outDir) ? readdirSync(outDir) : [];
     expect(files, 'Output directory must be empty after validation failure').toHaveLength(0);
+  });
+
+  it('--max-total-pct hard error: total exceeds default 10% of supply', async () => {
+    const csvPath = join(tmpDir, 'large-amount.csv');
+    writeFileSync(csvPath, [
+      'address,amount,cliffOffsetMonths,lockEndOffsetMonths',
+      '0x0000000000000000000000000000000000000001,20000000,6,12',
+      '0x0000000000000000000000000000000000000002,20000000,6,12',
+    ].join('\n') + '\n', 'utf8');
+
+    mkdirSync(outDir, { recursive: true });
+    await expect(
+      runLockCommand('addLocks', makeArgs({ '--csv': csvPath })),
+    ).rejects.toThrow(/exceeds --max-total-pct/);
+
+    const files = existsSync(outDir) ? readdirSync(outDir) : [];
+    expect(files, 'No output files on threshold error').toHaveLength(0);
+  });
+
+  it('--max-total-pct custom threshold passes', async () => {
+    const csvPath = join(tmpDir, 'large-amount.csv');
+    writeFileSync(csvPath, [
+      'address,amount,cliffOffsetMonths,lockEndOffsetMonths',
+      '0x0000000000000000000000000000000000000001,50000000,6,12',
+      '0x0000000000000000000000000000000000000002,50000000,6,12',
+    ].join('\n') + '\n', 'utf8');
+
+    await runLockCommand('addLocks', [
+      ...makeArgs({ '--csv': csvPath }),
+      '--max-total-pct', '50',
+    ]);
+
+    expect(existsSync(join(outDir, 'safe-tx.json'))).toBe(true);
+    expect(existsSync(join(outDir, 'safe-tx.summary.txt'))).toBe(true);
+
+    const summary = readFileSync(join(outDir, 'safe-tx.summary.txt'), 'utf8');
+    expect(summary).toContain('WARNING: --max-total-pct set to 50');
+  });
+
+  it('--warn-wallet-pct warnings appear in summary file', async () => {
+    const csvPath = join(tmpDir, 'warn-wallet.csv');
+    writeFileSync(csvPath, [
+      'address,amount,cliffOffsetMonths,lockEndOffsetMonths',
+      '0x0000000000000000000000000000000000000001,5000000,6,12',
+      '0x0000000000000000000000000000000000000002,100,6,12',
+    ].join('\n') + '\n', 'utf8');
+
+    await runLockCommand('addLocks', makeArgs({ '--csv': csvPath }));
+
+    const summary = readFileSync(join(outDir, 'safe-tx.summary.txt'), 'utf8');
+    expect(summary).toContain('0x0000000000000000000000000000000000000001');
+    expect(summary).toMatch(/\d+\.\d+% of total supply/);
+  });
+
+  it('--warn-wallet-pct run completes despite warnings', async () => {
+    const csvPath = join(tmpDir, 'warn-wallet.csv');
+    writeFileSync(csvPath, [
+      'address,amount,cliffOffsetMonths,lockEndOffsetMonths',
+      '0x0000000000000000000000000000000000000001,5000000,6,12',
+      '0x0000000000000000000000000000000000000002,100,6,12',
+    ].join('\n') + '\n', 'utf8');
+
+    await expect(
+      runLockCommand('addLocks', makeArgs({ '--csv': csvPath })),
+    ).resolves.not.toThrow();
+
+    expect(existsSync(join(outDir, 'safe-tx.json'))).toBe(true);
+    expect(existsSync(join(outDir, 'safe-tx.summary.txt'))).toBe(true);
+  });
+
+  it('threshold override warnings in summary', async () => {
+    const csvPath = join(tmpDir, 'override.csv');
+    writeFileSync(csvPath, [
+      'address,amount,cliffOffsetMonths,lockEndOffsetMonths',
+      '0x0000000000000000000000000000000000000001,100,6,12',
+    ].join('\n') + '\n', 'utf8');
+
+    await runLockCommand('addLocks', [
+      ...makeArgs({ '--csv': csvPath }),
+      '--max-total-pct', '50',
+      '--warn-wallet-pct', '5',
+    ]);
+
+    const summary = readFileSync(join(outDir, 'safe-tx.summary.txt'), 'utf8');
+    expect(summary).toContain('WARNING: --max-total-pct set to 50 (default: 10)');
+    expect(summary).toContain('WARNING: --warn-wallet-pct set to 5 (default: 1)');
+  });
+
+  it('no threshold override warnings with defaults', async () => {
+    await runLockCommand('addLocks', makeArgs());
+
+    const summary = readFileSync(join(outDir, 'safe-tx.summary.txt'), 'utf8');
+    expect(summary).not.toContain('WARNING: --max-total-pct');
+    expect(summary).not.toContain('WARNING: --warn-wallet-pct');
+  });
+
+  it('known-locks fixture: addLocks prepends entries', async () => {
+    const before = loadFixtures(knownLocksPath);
+    const beforeCount = before.length;
+
+    await runLockCommand('addLocks', makeArgs());
+
+    const after = loadFixtures(knownLocksPath);
+    expect(after.length).toBe(beforeCount + 3);
+
+    for (let i = 0; i < 3; i++) {
+      expect(after[i]!.source).toContain('addLocks:');
+    }
+
+    for (let i = 0; i < beforeCount; i++) {
+      expect(after[i + 3]!.address).toBe(before[i]!.address);
+      expect(after[i + 3]!.source).toBe(before[i]!.source);
+    }
+  });
+
+  it('known-locks fixture: addLocks source field format', async () => {
+    await runLockCommand('addLocks', makeArgs());
+
+    const after = loadFixtures(knownLocksPath);
+    for (let i = 0; i < 3; i++) {
+      expect(after[i]!.source).toMatch(/^addLocks:[0-9a-f]{12}$/);
+    }
+  });
+
+  it('known-locks fixture: addLocks entry fields', async () => {
+    await runLockCommand('addLocks', makeArgs());
+
+    const after = loadFixtures(knownLocksPath);
+    const newEntries = after.slice(0, 3);
+
+    for (const entry of newEntries) {
+      expect(entry.address).toMatch(/^0x[0-9a-fA-F]{40}$/);
+      expect(typeof entry.amount).toBe('string');
+      expect(parseFloat(entry.amount)).toBeGreaterThan(0);
+      expect(typeof entry.cliffDate).toBe('number');
+      expect(entry.cliffDate).toBeGreaterThan(0);
+      expect(typeof entry.lockEndDate).toBe('number');
+      expect(entry.lockEndDate).toBeGreaterThan(entry.cliffDate);
+    }
+  });
+
+  it('known-locks fixture: updateLocks removes then prepends', async () => {
+    await runLockCommand('addLocks', makeArgs({
+      '--csv': join(fixturesDir(), 'valid-2-wallets-with-lock.csv'),
+    }));
+    const afterAdd = loadFixtures(knownLocksPath);
+    const countAfterAdd = afterAdd.length;
+
+    await runLockCommand('updateLocks', makeArgs({
+      '--csv': join(fixturesDir(), 'valid-2-wallets-with-lock.csv'),
+    }));
+    const afterUpdate = loadFixtures(knownLocksPath);
+
+    expect(afterUpdate[0]!.source).toContain('updateLocks:');
+    expect(afterUpdate[1]!.source).toContain('updateLocks:');
+
+    const addLocksEntries = afterAdd.filter((e) => e.source.startsWith('addLocks:'));
+    const updateLocksEntries = afterUpdate.filter((e) => e.source.startsWith('updateLocks:'));
+    expect(updateLocksEntries.length).toBe(2);
+
+    expect(afterUpdate.length).toBe(countAfterAdd);
+  });
+
+  it('known-locks fixture: updateLocks source field format', async () => {
+    await runLockCommand('updateLocks', makeArgs({
+      '--csv': join(fixturesDir(), 'valid-2-wallets-with-lock.csv'),
+    }));
+
+    const after = loadFixtures(knownLocksPath);
+    const updateEntries = after.filter((e) => e.source.startsWith('updateLocks:'));
+    expect(updateEntries.length).toBeGreaterThan(0);
+    for (const entry of updateEntries) {
+      expect(entry.source).toMatch(/^updateLocks:[0-9a-f]{12}$/);
+    }
+  });
+
+  it('known-locks fixture: updateLocks preserves other entries', async () => {
+    const before = loadFixtures(knownLocksPath);
+    const updateCsvAddresses = new Set([
+      '0x073f18d260dc35d40aa5375a3ddee1616f59f5dd',
+      '0x822685e68d5d4c1c64973d831a13ebd3ed3c9b55',
+    ]);
+
+    const untouchedBefore = before.filter(
+      (e) => !updateCsvAddresses.has(e.address.toLowerCase()),
+    );
+
+    await runLockCommand('updateLocks', makeArgs({
+      '--csv': join(fixturesDir(), 'valid-2-wallets-with-lock.csv'),
+    }));
+
+    const after = loadFixtures(knownLocksPath);
+    const untouchedAfter = after.filter(
+      (e) => !e.source.startsWith('updateLocks:'),
+    );
+
+    expect(untouchedAfter.length).toBe(untouchedBefore.length);
+    for (let i = 0; i < untouchedBefore.length; i++) {
+      expect(untouchedAfter[i]!.address).toBe(untouchedBefore[i]!.address);
+      expect(untouchedAfter[i]!.amount).toBe(untouchedBefore[i]!.amount);
+      expect(untouchedAfter[i]!.source).toBe(untouchedBefore[i]!.source);
+    }
+  });
+
+  it('known-locks fixture: entries represent expected state (not on-chain)', async () => {
+    await runLockCommand('addLocks', makeArgs());
+
+    const after = loadFixtures(knownLocksPath);
+    const newEntries = after.slice(0, 3);
+
+    const expectedAddresses = [
+      '0x0000000000000000000000000000000000000001',
+      '0x0000000000000000000000000000000000000002',
+      '0x0000000000000000000000000000000000000003',
+    ];
+    const sortedNew = [...newEntries].sort((a, b) =>
+      a.address.toLowerCase().localeCompare(b.address.toLowerCase()),
+    );
+    for (let i = 0; i < expectedAddresses.length; i++) {
+      expect(sortedNew[i]!.address.toLowerCase()).toBe(expectedAddresses[i]);
+    }
+
+    expect(sortedNew[0]!.amount).toBe('100.0');
+    expect(sortedNew[1]!.amount).toBe('200.0');
+    expect(sortedNew[2]!.amount).toBe('300.0');
   });
 });

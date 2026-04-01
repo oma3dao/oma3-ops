@@ -300,7 +300,7 @@ These tests require a Sepolia RPC endpoint. Set `OMA3_OPS_RPC_URL_SEPOLIA` in th
 
 Sepolia contract addresses (from README):
 - OMA: `0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf`
-- OMA Lock: `0x2f38D6cCB480d5C7e68d11b5a02f2c2451543F58`
+- OMA Lock: `0xfD1410e3A80A0f311804a09C656d98a82B7c5d9f`
 
 #### `lock-status.test.ts`
 
@@ -426,120 +426,229 @@ Integration tests load known wallet data from `data/<network>-known-locks.json`.
 
 ## Manual Testing
 
-These procedures document how to exercise the Safe Transaction Builder interface end-to-end on Sepolia. They complement the automated test suite by verifying the full human workflow: generate artifacts, import into Safe UI, and confirm on-chain results.
+These procedures document how to exercise the Safe Transaction Builder interface end-to-end on Sepolia. They complement the automated test suite by verifying the full human workflow: generate artifacts, fund the Admin Safe, import into Safe UI, execute, and confirm on-chain results.
+
+### Contract addresses (Sepolia)
+
+| Contract | Address |
+|----------|---------|
+| OMA Token | `0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf` |
+| OMALock | `0xfD1410e3A80A0f311804a09C656d98a82B7c5d9f` |
+| Admin Safe | `0x1DB7fa65bB67176196E7bB3286019CC8714c8184` |
+| Treasury Safe | `0x116328754149da56674D1034871eeE08B7864D34` |
 
 ### Pre-requisites
 
-- A Safe multisig wallet on Sepolia (`app.safe.global`)
-- Sepolia ETH in the Safe for gas
-- Sepolia OMA tokens (contract `0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf`)
-- A Sepolia RPC endpoint (set `OMA3_OPS_RPC_URL_SEPOLIA`)
-- Node.js and project dependencies installed (`npm install`)
-- A test CSV with wallet addresses and amounts (see `test/fixtures/valid-3-wallets.csv` for format)
+- Signer access to the Admin Safe and Treasury Safe on Sepolia at `app.safe.global`
+- Sepolia ETH in the signer wallet (for gas when confirming Safe transactions)
+- Sepolia OMA tokens in the Treasury Safe (or another funded wallet)
+- A Sepolia RPC endpoint — set via `.env.local` or environment variable:
+  ```bash
+  export OMA3_OPS_RPC_URL_SEPOLIA=https://your-sepolia-rpc-url
+  ```
+- Node.js 20+ and project dependencies installed:
+  ```bash
+  npm install && npm run build
+  ```
 
-### Procedure 1: Generate and import an addLocks transaction
+### Procedure 1: Fund the Admin Safe with OMA tokens
 
-1. Prepare a CSV (e.g. `test-add.csv`) with 2-3 test wallets that have no existing locks:
+The Admin Safe must hold enough OMA to cover the `addLocks` batch. If your OMA tokens are in a Treasury Safe, transfer them first.
+
+Safe has built-in support for ERC-20 token transfers — no Transaction Builder required. The Transaction Builder is only needed for custom contract calls that Safe doesn't have a UI for (like `addLocks()`, `updateLocks()`, `slash()`, etc.).
+
+1. **Send OMA from the Treasury Safe:**
+   - Go to `app.safe.global` > select the **Treasury Safe** (`0x1163...D34`)
+   - If OMA doesn't appear in the asset list, add it manually by pasting the OMA token contract address: `0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf`
+   - Click the **New Transaction** button (green button in the left column) > **Send tokens**
+   - Select OMA as the token
+   - Set the recipient to the Admin Safe: `0x1DB7fa65bB67176196E7bB3286019CC8714c8184`
+   - Enter the amount (e.g. `3` for 3 OMA — the UI handles the wei conversion)
+   - Review and submit
+   - Sign with your signer wallet (MetaMask or similar)
+   - Collect additional signer approvals if the Safe threshold requires it
+
+2. **Confirm the transfer:**
+   - Check the Admin Safe balance on [Sepolia Etherscan](https://sepolia.etherscan.io/address/0x1DB7fa65bB67176196E7bB3286019CC8714c8184#tokentxns)
+   - Verify the OMA balance matches the transferred amount
+
+### Procedure 2: Generate and import an addLocks transaction
+
+1. **Prepare a test CSV** (e.g. `data/runs/sepolia/<date>-addLocks/input.csv`):
    ```
    address,amount,cliffOffsetMonths,lockEndOffsetMonths
-   0xWALLET1,1000,6,12
-   0xWALLET2,2000,6,24
+   0x073F18d260dC35d40Aa5375a3DDEE1616F59F5dd,1,0,1
+   0x822685E68d5d4C1C64973d831A13Ebd3ed3C9b55,1,0,1
+   0xc10846231A3B77765cC771e95BD70222956ba50b,1,0,24
    ```
-2. Generate the transaction:
+   Use `cliffOffsetMonths=0` and short `lockEndOffsetMonths` for test wallets so vesting completes quickly and you can test `claim()`.
+
+2. **Generate the Safe transaction:**
    ```bash
-   npm run lock-add-locks -- --csv test-add.csv --anchor-date-utc 2025-06-01T00:00:00Z --network sepolia --out-dir output/
+   npm run lock-add-locks -- \
+     --csv data/runs/sepolia/2026-03-18-001-addLocks/input.csv \
+     --anchor-date-utc 2025-06-01T00:00:00Z \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA \
+     --out-dir data/runs/sepolia/2026-03-18-001-addLocks/
    ```
-3. Verify output files:
-   - `output/safe-tx.json` — the Safe batch file
-   - `output/safe-tx.summary.txt` — human-readable summary
-4. Open the summary and verify:
-   - Wallet addresses match the CSV
-   - Amounts match (both human-readable OMA and wei)
-   - Cliff and lockEnd dates are correct for the given anchor + offsets
-   - `Validation: PASS`
-5. Verify SHA256 of the JSON file matches the summary:
+
+3. **Verify output files:**
+   - `safe-tx.json` — the Safe batch file
+   - `safe-tx.summary.txt` — human-readable summary
+   - Open the summary and check: wallet addresses match CSV, amounts match, cliff/lockEnd dates are correct, `Validation: PASS`
+
+4. **Verify the SHA256:**
    ```bash
-   sha256sum output/safe-tx.json
+   # Linux/macOS
+   sha256sum safe-tx.json
+   # Windows PowerShell
+   Get-FileHash safe-tx.json -Algorithm SHA256
    ```
    Compare with the `JSON SHA256:` line in the summary.
-6. Import `safe-tx.json` into Safe Transaction Builder:
-   - Go to `app.safe.global` > your Sepolia Safe > New Transaction > Transaction Builder
-   - Upload `safe-tx.json`
-   - Verify the correct number of transactions appear
-   - Verify each transaction shows `addLocks` as the method
-   - Verify decoded parameters match the summary (wallets, amounts, cliff/lockEnd timestamps)
-7. Verify calldata hash:
-   - Copy raw calldata hex from Safe UI for each transaction
-   - Run `npm run hash -- <hex>` and confirm the result matches `calldataHash` in the summary
-8. Verify batch fingerprint:
-   - Confirm the `Batch Fingerprint` in the summary matches the batch metadata shown by Safe UI
 
-### Procedure 2: Generate and import an updateLocks transaction
-
-1. Use wallets from Procedure 1 that already have locks.
-2. Generate:
-   ```bash
-   npm run lock-update-locks -- --csv test-update.csv --anchor-date-utc 2025-06-01T00:00:00Z --network sepolia --out-dir output/
+5. **Create a combined approve + addLocks batch (recommended).** The Admin Safe must first `approve` the OMALock contract to spend its OMA tokens. Instead of two separate transactions, combine them into one batch file. Prepend an `approve` transaction before the `addLocks` transactions in `safe-tx.json`:
+   ```json
+   {
+     "to": "0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf",
+     "value": "0",
+     "data": null,
+     "contractMethod": {
+       "name": "approve",
+       "payable": false,
+       "inputs": [
+         { "internalType": "address", "name": "spender", "type": "address" },
+         { "internalType": "uint256", "name": "amount", "type": "uint256" }
+       ]
+     },
+     "contractInputsValues": {
+       "spender": "0xfD1410e3A80A0f311804a09C656d98a82B7c5d9f",
+       "amount": "3000000000000000000"
+     }
+   }
    ```
-   (The CSV for `updateLocks` uses the same columns but amounts are ignored by the contract.)
-3. Import into Safe Transaction Builder and verify:
+   Set `amount` to the total OMA in the batch (in wei). Insert this as the first element of the `transactions` array in `safe-tx.json` and save as `safe-tx-with-approve.json`.
+
+6. **Import into Safe UI (Admin Safe):**
+   - Go to `app.safe.global` > select the **Admin Safe** (`0x1DB7...184`)
+   - Click **New Transaction** > **Transaction Builder**
+   - Upload `safe-tx-with-approve.json`
+   - Verify: first transaction is `approve`, remaining are `addLocks`
+   - Check decoded parameters: spender is the OMALock address, approve amount matches total, wallet addresses and amounts in `addLocks` match the summary
+   - Click **Create Batch** > **Send Batch** > sign and execute
+
+7. **Verify on-chain:**
+   ```bash
+   npm run lock-status -- \
+     --wallet 0x073F18d260dC35d40Aa5375a3DDEE1616F59F5dd \
+              0x822685E68d5d4C1C64973d831A13Ebd3ed3C9b55 \
+              0xc10846231A3B77765cC771e95BD70222956ba50b \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA
+   ```
+   Confirm each wallet shows `hasLock: true` with matching amounts and dates.
+
+### Procedure 3: Generate and import an updateLocks transaction
+
+1. Use wallets from Procedure 2 that already have locks.
+2. **Generate:**
+   ```bash
+   npm run lock-update-locks -- \
+     --csv test-update.csv \
+     --anchor-date-utc 2025-06-01T00:00:00Z \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA \
+     --out-dir output/
+   ```
+   The CSV uses the same columns; amounts are ignored by the contract for `updateLocks`.
+3. **Import into Safe Transaction Builder (Admin Safe)** and verify:
    - Method is `updateLocks`
-   - No amounts parameter in the decoded calldata
+   - No `amounts_` parameter in the decoded calldata
    - Wallet addresses match
    - New cliff and lockEnd dates match the updated offsets
-4. Execute and verify with `lock-status`:
+4. **Execute and verify:**
    ```bash
-   npm run lock-status -- --wallet 0xWALLET1 0xWALLET2 --network sepolia
+   npm run lock-status -- \
+     --wallet 0x073F18d260dC35d40Aa5375a3DDEE1616F59F5dd \
+              0x822685E68d5d4C1C64973d831A13Ebd3ed3C9b55 \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA
    ```
-   Confirm the cliff and lockEnd dates reflect the update.
+   Confirm cliff and lockEnd dates reflect the update.
 
-### Procedure 3: Generate and import slash and slashStake transactions
+### Procedure 4: Generate and import slash and slashStake transactions
 
 1. For `slash`, prepare a CSV with wallets to slash:
    ```
    address
    0xWALLET_TO_SLASH
    ```
-2. Generate:
+2. **Generate:**
    ```bash
-   npm run lock-slash -- --csv test-slash.csv --network sepolia --to 0xRECIPIENT --out-dir output/
+   npm run lock-slash -- \
+     --csv test-slash.csv \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA \
+     --to 0xRECIPIENT \
+     --out-dir output/
    ```
-3. For `slashStake`, prepare a CSV with wallets and amounts:
+3. For `slashStake`, prepare a CSV with wallets and staked amounts:
    ```
-   address,amount
+   address,stakedAmount
    0xWALLET_TO_SLASH,500
    ```
-4. Generate:
+4. **Generate:**
    ```bash
-   npm run lock-slash-stake -- --csv test-slash-stake.csv --network sepolia --to 0xRECIPIENT --out-dir output/
+   npm run lock-slash-stake -- \
+     --csv test-slash-stake.csv \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA \
+     --to 0xRECIPIENT \
+     --out-dir output/
    ```
-5. Import each into Safe Transaction Builder and verify:
+5. **Import each into Safe Transaction Builder (Admin Safe)** and verify:
    - `slash` transactions show the correct `wallet_` and `to_` parameters
-   - `slashStake` transactions show the correct `wallet_`, `amount_`, and `to_` parameters
+   - `slashStake` transactions show the correct `wallet_`, `stakedAmount_`, and `to_` parameters
 6. Execute and verify with `lock-status` that the slashed/staked amounts changed accordingly.
 
-### Procedure 4: Verify summary SHA256 and batch fingerprint after Safe import
+### Procedure 5: Verify summary SHA256 and batch fingerprint after Safe import
 
-1. After importing any `safe-tx.json` into Safe UI, re-verify:
+1. After importing any `safe-tx.json` into Safe UI, re-verify the SHA256:
    ```bash
+   # Linux/macOS
    sha256sum output/safe-tx.json
+   # Windows PowerShell
+   Get-FileHash output/safe-tx.json -Algorithm SHA256
    ```
    Must match `JSON SHA256:` in the summary.
-2. For each transaction in the batch, copy the calldata hex from Safe UI and run:
+2. For each transaction in the batch, copy the raw calldata hex from Safe UI and run:
    ```bash
    npm run hash -- <calldata-hex>
    ```
    Each result must match the corresponding `calldataHash=` in the summary.
 3. The `Batch Fingerprint` is the keccak256 of the concatenated per-transaction calldata hashes. This value should remain stable as long as the JSON file is unmodified.
 
-### Procedure 5: Verify known-locks fixture update
+### Procedure 6: Verify known-locks fixture update
 
 1. After executing an `addLocks` transaction on Sepolia, run:
    ```bash
-   npm run lock-verify-json -- --network sepolia
+   npm run lock-verify-json -- \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA
    ```
 2. Confirm all entries report `OK` (on-chain state matches fixture).
 3. If any report `MISMATCH`, the auto-fix (default on Sepolia) will update the fixture with on-chain values.
+
+### Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---------|-------------|-----|
+| `GS013` revert on Safe execution | Admin Safe doesn't hold enough OMA tokens | Run Procedure 1 to fund the Admin Safe before executing addLocks |
+| `GS013` revert on single-transaction batch from Transaction Builder | Safe UI wraps single-transaction batches in MultiSend differently, causing execution to fail even when the underlying contract call is valid | Prepend a no-op `approve(OMALock, 0)` transaction to create a 2-transaction batch. Save as `safe-tx-batch.json` and upload that instead. Multi-transaction batches route through MultiSend correctly. |
+| `LockExist` revert | Trying to `addLocks` for wallets that already have locks | Use `updateLocks` instead, or use fresh wallet addresses |
+| `NoLock` revert | Trying to `updateLocks` for wallets with no existing lock | Use `addLocks` first |
+| Integration tests fail with `ENOENT` or `EINVAL` for tsx | Windows-specific issue with `execFileSync` | Ensure `shell: true` is set in test helpers (already fixed) |
+| Integration tests show `MISSING` entries | Fixture contains addresses not present on the new contract | Run `npm run lock-verify-json -- --network sepolia --auto-fix` to clean the fixture |
 
 ---
 
