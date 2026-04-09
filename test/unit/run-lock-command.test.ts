@@ -522,7 +522,7 @@ describe('runLockCommand - updateLocks preflight', () => {
 
     // Verify saveFixtures was called with the correct entries
     expect(mockSaveFixtures).toHaveBeenCalled();
-    const savedEntries = mockSaveFixtures.mock.calls[0][1] as Array<{ address: string; amount: string; source: string }>;
+    const savedEntries = mockSaveFixtures.mock.calls[0]![1] as Array<{ address: string; amount: string; source: string }>;
 
     // Find the entry for our test address
     const entry = savedEntries.find(
