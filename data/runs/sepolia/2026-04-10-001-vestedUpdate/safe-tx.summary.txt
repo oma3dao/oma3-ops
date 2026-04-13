@@ -1,0 +1,30 @@
+OMA3 OPS TRANSACTION SUMMARY
+Transaction ID: updateLocks-17dec8935e10
+Operation: updateLocks
+Network Name: sepolia
+Chain ID: 11155111
+Anchor Date UTC: 2025-06-01T00:00:00Z
+OMALock Contract: 0xfD1410e3A80A0f311804a09C656d98a82B7c5d9f
+OMA Token Contract: 0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf
+Input CSV: C:\Users\Giography\Documents\Wivity\oma3-ops\data\runs\sepolia\2026-04-10-001-vestedUpdate\input.csv
+Rows Parsed: 1
+Validation: PASS
+Transactions: 1
+Max Wallets Per Tx: 200
+Total Wallets: 1
+Total OMA (human): 1.0
+Total OMA (wei): 1000000000000000000
+JSON SHA256: 5c75386e6dabb821ab554f72899b7f5165fd137cbc9c066477ce4d96ce07c25a
+Batch Fingerprint: 0x17dec8935e103a7c6ca98005957f59964d969cc91880461a099ba1e6333fee68 (short 0x17dec8935e10)
+
+TRANSACTIONS
+- tx 1: method=updateLocks cliffUnix=1756684800 cliffUtc=2025-09-01T00:00:00Z lockEndUnix=1780272000 lockEndUtc=2026-06-01T00:00:00Z wallets=1 totalOMA=1.0 totalWei=1000000000000000000 firstWallet=0x073F18d260dC35d40Aa5375a3DDEE1616F59F5dd lastWallet=0x073F18d260dC35d40Aa5375a3DDEE1616F59F5dd calldataHash=0xf987d59815748f334238ee75858072219e4924adcbe8240987eed53269d68626
+
+VALIDATION
+- amountWei cross-check: N/A
+- duplicate addresses: pass
+- offset resolution: pass
+- timestamp format: pass
+
+WARNINGS
+- None

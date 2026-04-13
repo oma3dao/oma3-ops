@@ -639,14 +639,327 @@ Safe has built-in support for ERC-20 token transfers — no Transaction Builder 
 2. Confirm all entries report `OK` (on-chain state matches fixture).
 3. If any report `MISMATCH`, the auto-fix (default on Sepolia) will update the fixture with on-chain values.
 
+### Negative Tests and Edge Cases
+
+These procedures verify error handling and edge cases. Each documents the expected error so operators know what to look for when something goes wrong.
+
+> **Key finding from testing:** All contract-level reverts — `LockExist`, `NoLock`, `Ownable`, access control, insufficient balance — appear as **`GS013`** in Safe UI. Safe does not decode or surface the underlying revert reason. Operators must use context (`lock-status`, checking which Safe they're using, verifying balances) to diagnose the root cause. See the Troubleshooting table for a differential diagnosis.
+
+#### Contract Reverts
+
+##### Procedure 7: `LockExist` — addLocks on wallets that already have locks
+
+The script does not preflight-check for existing locks, so the JSON is generated successfully. The revert happens when the Safe transaction is executed on-chain.
+
+1. **Use wallets that already have locks** from Procedure 2 (e.g. `0x073F...5dd`, `0x8226...b55`).
+2. **Generate an addLocks batch with those wallets:**
+   ```bash
+   npm run lock-add-locks -- \
+     --csv data/runs/sepolia/2026-03-26-002-revertBehavior/input-addlocks-duplicate.csv \
+     --anchor-date-utc 2025-06-01T00:00:00Z \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA \
+     --out-dir data/runs/sepolia/<date>-lockExist/
+   ```
+3. **Expected:** Script succeeds. `safe-tx.json` and `safe-tx.summary.txt` are produced with `Validation: PASS`. The script does not preflight-check for existing locks.
+4. **Create a `safe-tx-with-approve.json`** by prepending an `approve` transaction (amount = total OMA in wei) to the `transactions` array.
+5. **Import `safe-tx-with-approve.json` into Safe Transaction Builder** (Admin Safe) and execute.
+6. **Expected on-chain:** The transaction reverts. No state changes occur — the batch is all-or-nothing.
+7. **What it looks like in Safe UI:** Safe shows `GS013` — the generic "internal transaction failed" error from the Safe contract. The error message reads:
+   ```
+   The contract function "execTransaction" reverted with the following reason: GS013
+   ```
+   The underlying `LockExist` revert reason is **not directly visible** in Safe UI. It is buried inside the MultiSend internal call trace. The `GS013` error is the same error code shown for an underfunded Safe or any other internal failure — operators must use context (e.g. checking `lock-status` for the target wallets) to determine the root cause.
+
+> **Tested:** 2026-04-10 — Confirmed `GS013` revert on Sepolia when re-adding locks to wallets `0x073F...5dd` and `0x8226...b55` that already had active locks.
+
+##### Procedure 8: `NoLock` — updateLocks on wallets with no lock
+
+The script performs an on-chain preflight check for `updateLocks` and rejects before generating JSON.
+
+1. **Prepare a CSV with wallet addresses that have no existing lock:**
+   ```
+   address,amount,cliffOffsetMonths,lockEndOffsetMonths
+   0x0000000000000000000000000000000000000099,1,3,12
+   ```
+2. **Run:**
+   ```bash
+   npm run lock-update-locks -- \
+     --csv input-nolock.csv \
+     --anchor-date-utc 2025-06-01T00:00:00Z \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA \
+     --out-dir output/
+   ```
+3. **Expected:** Script exits with a non-zero exit code. Error message includes:
+   ```
+   updateLocks preflight failed:
+   - No lock on-chain (1):
+     0x0000000000000000000000000000000000000099
+   ```
+4. **Verify:** No `safe-tx.json` or `safe-tx.summary.txt` in the output directory.
+
+##### Procedure 9: `InvalidParameters` — lockEndOffsetMonths <= cliffOffsetMonths
+
+The script validates CSV offsets before generating any output.
+
+1. **Prepare a CSV with `lockEndOffsetMonths` equal to `cliffOffsetMonths`:**
+   ```
+   address,amount,cliffOffsetMonths,lockEndOffsetMonths
+   0x0000000000000000000000000000000000000001,1,12,12
+   ```
+2. **Run:**
+   ```bash
+   npm run lock-add-locks -- \
+     --csv input-invalid-params.csv \
+     --anchor-date-utc 2025-06-01T00:00:00Z \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA \
+     --out-dir output/
+   ```
+3. **Expected:** Script exits with error: `lockEndOffsetMonths must be > cliffOffsetMonths`.
+4. **Repeat** with `lockEndOffsetMonths=6` and `cliffOffsetMonths=12` — same error.
+5. **Verify:** No output files produced.
+
+##### Procedure 10: Slash negative tests
+
+**10a: Slash on wallet with `stakedAmount > 0`**
+
+The script checks on-chain staked amounts and hard-errors before generating JSON.
+
+1. **Identify a wallet with staked tokens** (or use a test wallet known to have `stakedAmount > 0`).
+2. **Run:**
+   ```bash
+   npm run lock-slash -- \
+     --csv input-staked-wallet.csv \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA \
+     --to 0x1DB7fa65bB67176196E7bB3286019CC8714c8184 \
+     --out-dir output/
+   ```
+3. **Expected:** Script exits with error:
+   ```
+   Cannot slash wallets with staked tokens. Run lock-slash-stake first for:
+     0xWALLET (stakedAmount: X.X OMA / NNNN wei)
+   ```
+4. **Verify:** No output files produced.
+
+**10b: Slash on wallet with no lock**
+
+1. **Prepare a CSV with a wallet that has no lock:**
+   ```
+   address
+   0x0000000000000000000000000000000000000099
+   ```
+2. **Run:**
+   ```bash
+   npm run lock-slash -- \
+     --csv input-nolock-slash.csv \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA \
+     --to 0x1DB7fa65bB67176196E7bB3286019CC8714c8184 \
+     --out-dir output/
+   ```
+3. **Expected:** Script exits with error indicating no lock record on-chain.
+4. **Verify:** No output files produced.
+
+#### Operational Errors
+
+##### Procedure 11: Underfunded Safe (`GS013`)
+
+When the Admin Safe doesn't hold enough OMA tokens to cover `addLocks`, Safe execution reverts with `GS013`. This error comes from the Safe contract itself (Gnosis Safe error code 13: internal transaction failed), not from OMALock.
+
+**Pre-requisite:** The Admin Safe must have less OMA than the batch requires. Either drain it first or use a batch that exceeds the current balance.
+
+**11a: Single-wallet batch (demonstrates GS013 + single-tx workaround)**
+
+1. **Generate a single-wallet addLocks** (ensure the Safe doesn't hold enough OMA):
+   ```bash
+   npm run lock-add-locks -- \
+     --csv data/runs/sepolia/2026-03-31-001-gs013-single/input.csv \
+     --anchor-date-utc 2025-06-01T00:00:00Z \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA \
+     --out-dir data/runs/sepolia/<date>-gs013-single/
+   ```
+2. **Import `safe-tx.json` into Safe Transaction Builder and execute.**
+3. **Expected:** Transaction reverts with `GS013`.
+4. **Root cause:** The Safe doesn't hold enough OMA for the `addLocks` call. The `safeTransferFrom` inside the OMALock contract fails because the approval or balance is insufficient.
+5. **What it looks like in Safe UI:** Execution fails at the signing step or shows a failed transaction in history. The error message or decoded revert data shows `GS013`.
+6. **Note:** Single-transaction batches can also fail with `GS013` due to Safe's MultiSend routing behavior. See the single-tx workaround in Procedure 17.
+
+**11b: Multi-wallet same-group batch**
+
+Repeat with `data/runs/sepolia/2026-03-31-002-gs013-multi-same/input.csv` (3 wallets, same cliff/lockEnd, 1 transaction). Same expected result: `GS013` if underfunded.
+
+**11c: Multi-wallet different-group batch**
+
+Repeat with `data/runs/sepolia/2026-03-31-003-gs013-multi-diff/input.csv` (4 wallets, 2 groupings, 2 transactions). Same expected result: `GS013` if underfunded.
+
+##### Procedure 12: Unauthorized Safe — missing contract role
+
+This tests what happens when a Safe that doesn't hold the required contract role attempts to execute `addLocks`, `updateLocks`, or `slash`.
+
+On the OMALock contract:
+- `addLocks` / `updateLocks` are owner-only — only the contract owner (the Admin Safe) can call them.
+- `slash` requires `SLASH_ROLE`.
+- `slashStake` requires `STAKE_ROLE`.
+
+1. **Import a valid `safe-tx.json`** (e.g. `data/runs/sepolia/2026-03-31-002-gs013-multi-same/safe-tx.json`) into a **different Safe** that is not the contract owner. The Treasury Safe (`0x116328754149da56674D1034871eeE08B7864D34`) works for this test.
+2. **Create Batch > Send Batch > Sign and Execute.**
+3. **Expected:** The transaction reverts with `GS013`.
+4. **What it looks like in Safe UI:** Same as every other contract-level error — `GS013` with no distinction from an underfunded Safe, a `LockExist` revert, or any other failure:
+   ```
+   The contract function "execTransaction" reverted with the following reason: GS013
+   ```
+   The underlying `Ownable` / access control revert is not visible in Safe UI. The operator must know which Safe holds the required role and verify they are importing into the correct one.
+
+> **Tested:** 2026-04-10 — Confirmed `GS013` revert when executing `addLocks` from the Treasury Safe (`0x1163...D34`), which is not the OMALock contract owner.
+
+##### Procedure 13: Wrong network — mainnet JSON imported into Sepolia Safe
+
+This tests what happens when a JSON file generated for one network is imported into a Safe on a different network.
+
+1. **Create a wrong-chain JSON** by copying any existing Sepolia `safe-tx.json` and changing `"chainId": "11155111"` to `"chainId": "1"`. (Alternatively, generate a real mainnet JSON with `--network mainnet` if you have a mainnet RPC.)
+2. **Open the Sepolia Admin Safe** at `app.safe.global`.
+3. **Import the wrong-chain JSON via Transaction Builder.**
+4. **Observed behavior:** Safe UI **does not validate the `chainId` field**. The import succeeds silently — no warning, no error. The full Transaction Builder flow works normally: import → create batch → send batch → sign.
+5. **At execution:** The transaction reverts with `GS013`. The failure is from the contract call itself (e.g. the target wallet may not exist on this chain, or balance/approval is insufficient), not from chain ID validation.
+6. **Key takeaway for operators:** The `chainId` field in Safe Transaction Builder JSON is **not enforced by Safe UI**. Always verify the `Network Name` and `Chain ID` fields in `safe-tx.summary.txt` match the Safe you are importing into. The summary is the primary safeguard against wrong-network imports — Safe UI provides no protection.
+
+> **Tested:** 2026-04-10 — Confirmed Safe UI silently accepts `chainId: "1"` (mainnet) JSON in a Sepolia Safe. No warning at any step. Transaction reverted with `GS013` at execution.
+
+#### Script Validation
+
+These rejections are already covered by automated tests (`validation.test.ts`, `run-lock-command.test.ts`, `end-to-end.test.ts`). The procedures below document the manual experience for operator reference.
+
+##### Procedure 14: Script validation — CSV with duplicate addresses
+
+1. **Prepare a CSV with the same address twice:**
+   ```
+   address,amount,cliffOffsetMonths,lockEndOffsetMonths
+   0x073F18d260dC35d40Aa5375a3DDEE1616F59F5dd,1,6,12
+   0x073F18d260dC35d40Aa5375a3DDEE1616F59F5dd,2,6,12
+   ```
+2. **Run `lock-add-locks` with this CSV.**
+3. **Expected:** Script exits with error: `duplicate address`.
+4. **Verify:** No output files produced.
+
+##### Procedure 15: Script validation — `--max-total-pct` exceeded
+
+1. **Prepare a CSV** whose total OMA exceeds 10% of total supply (333,333,333 OMA × 10% = 33,333,333 OMA):
+   ```
+   address,amount,cliffOffsetMonths,lockEndOffsetMonths
+   0x0000000000000000000000000000000000000001,34000000,6,12
+   ```
+2. **Run `lock-add-locks` with default `--max-total-pct` (10).**
+3. **Expected:** Script exits with a hard error referencing the total supply threshold.
+4. **Verify:** No output files produced.
+5. **Override:** Re-run with `--max-total-pct 50` — script should succeed.
+
+##### Procedure 16: Script validation — `--require-amount-wei` without amountWei column
+
+1. **Prepare a CSV without an `amountWei` column:**
+   ```
+   address,amount,cliffOffsetMonths,lockEndOffsetMonths
+   0x0000000000000000000000000000000000000001,1,6,12
+   ```
+2. **Run with `--require-amount-wei`:**
+   ```bash
+   npm run lock-add-locks -- \
+     --csv input.csv \
+     --anchor-date-utc 2025-06-01T00:00:00Z \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA \
+     --require-amount-wei \
+     --out-dir output/
+   ```
+3. **Expected:** Script exits with error indicating `amountWei` column is required but absent.
+4. **Verify:** No output files produced.
+
+#### Edge Cases
+
+##### Procedure 17: Single-transaction batch via Transaction Builder
+
+Safe UI wraps single-transaction batches through MultiSend differently than multi-transaction batches. This can cause `GS013` even when the underlying contract call is valid. The workaround is to prepend a no-op `approve(OMALock, 0)` to create a 2-transaction batch.
+
+1. **Generate a single-transaction addLocks batch** (1 wallet, or multiple wallets with same cliff/lockEnd):
+   ```bash
+   npm run lock-add-locks -- \
+     --csv input-single.csv \
+     --anchor-date-utc 2025-06-01T00:00:00Z \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA \
+     --out-dir output/
+   ```
+   Verify the summary shows `Transactions: 1`.
+
+2. **Create a `safe-tx-batch.json`** by prepending a no-op approve to the transactions array:
+   ```json
+   {
+     "to": "0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf",
+     "value": "0",
+     "data": null,
+     "contractMethod": {
+       "name": "approve",
+       "payable": false,
+       "inputs": [
+         { "internalType": "address", "name": "spender", "type": "address" },
+         { "internalType": "uint256", "name": "amount", "type": "uint256" }
+       ]
+     },
+     "contractInputsValues": {
+       "spender": "0xfD1410e3A80A0f311804a09C656d98a82B7c5d9f",
+       "amount": "0"
+     }
+   }
+   ```
+   Insert this as the first element of `transactions` in `safe-tx.json`. Save as `safe-tx-batch.json`.
+
+3. **Import `safe-tx-batch.json`** into Safe Transaction Builder (Admin Safe).
+4. **Verify:** First transaction is `approve` (amount 0), second is `addLocks`.
+5. **Execute and confirm on-chain** using `lock-status`.
+6. **Expected:** Transaction succeeds. The no-op approve has no effect; the addLocks executes normally.
+
+##### Procedure 18: Fully vested wallet with `updateLocks`
+
+The OMALock contract allows `updateLocks` on wallets that are fully vested (vesting progress = 100%). The lock record still exists because `claim()` does not delete it — only `slash` deletes a lock record.
+
+1. **Identify a fully vested wallet** from Procedure 2. Wallets locked with `cliffOffsetMonths=0` and `lockEndOffsetMonths=1` from anchor `2025-06-01T00:00:00Z` are fully vested after `2025-07-01T00:00:00Z`.
+2. **Verify the wallet is fully vested:**
+   ```bash
+   npm run lock-status -- \
+     --wallet 0x073F18d260dC35d40Aa5375a3DDEE1616F59F5dd \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA
+   ```
+   Confirm `vestingProgress` is `100%` or `lockEndDate` is in the past.
+3. **Generate an updateLocks batch** with new dates:
+   ```bash
+   npm run lock-update-locks -- \
+     --csv input-vested-update.csv \
+     --anchor-date-utc 2025-06-01T00:00:00Z \
+     --network sepolia \
+     --rpc-url $OMA3_OPS_RPC_URL_SEPOLIA \
+     --out-dir output/
+   ```
+4. **Expected:** Script succeeds (preflight passes — the wallet has a lock record).
+5. **Import into Safe Transaction Builder and execute.**
+6. **Expected on-chain:** Transaction succeeds. `lock-status` shows updated cliff and lockEnd dates.
+
+> **Partially tested:** 2026-04-10 — `updateLocks` succeeded on a wallet at 81.1% vesting progress ([tx](https://sepolia.etherscan.io/tx/0xa37a8887788e361180742b48b51a8fd72aba2cc18f437ea3eee32df8ccf909e7)). The fully vested (100%) edge case still needs testing after the wallet's `lockEndDate` (2026-06-01) passes.
+
 ### Troubleshooting
 
 | Symptom | Likely Cause | Fix |
 |---------|-------------|-----|
 | `GS013` revert on Safe execution | Admin Safe doesn't hold enough OMA tokens | Run Procedure 1 to fund the Admin Safe before executing addLocks |
-| `GS013` revert on single-transaction batch from Transaction Builder | Safe UI wraps single-transaction batches in MultiSend differently, causing execution to fail even when the underlying contract call is valid | Prepend a no-op `approve(OMALock, 0)` transaction to create a 2-transaction batch. Save as `safe-tx-batch.json` and upload that instead. Multi-transaction batches route through MultiSend correctly. |
-| `LockExist` revert | Trying to `addLocks` for wallets that already have locks | Use `updateLocks` instead, or use fresh wallet addresses |
-| `NoLock` revert | Trying to `updateLocks` for wallets with no existing lock | Use `addLocks` first |
+| `GS013` revert on single-transaction batch from Transaction Builder | Safe UI wraps single-transaction batches in MultiSend differently, causing execution to fail even when the underlying contract call is valid | Prepend a no-op `approve(OMALock, 0)` transaction to create a 2-transaction batch (see Procedure 17). Save as `safe-tx-batch.json` and upload that instead. Multi-transaction batches route through MultiSend correctly. |
+| `LockExist` revert (appears as `GS013` in Safe UI) | Trying to `addLocks` for wallets that already have locks (see Procedure 7). Safe UI does not show `LockExist` directly — it wraps as `GS013`. Run `lock-status` on the target wallets to confirm they already have locks. | Use `updateLocks` instead, or use fresh wallet addresses |
+| `NoLock` revert | Trying to `updateLocks` for wallets with no existing lock (see Procedure 8) | Use `addLocks` first |
+| `InvalidParameters` revert | `lockEndOffsetMonths <= cliffOffsetMonths` in CSV (see Procedure 9) | Fix CSV so `lockEndOffsetMonths > cliffOffsetMonths` |
+| `AmountStaked` / staked tokens error | Trying to `slash` a wallet with staked tokens (see Procedure 10a) | Run `lock-slash-stake` first, then `lock-slash` |
+| `GS013` after importing JSON from a different network | Safe UI does **not** validate the `chainId` field in Transaction Builder JSON — it silently accepts mismatched chain IDs (see Procedure 13) | Always verify `Network Name` and `Chain ID` in `safe-tx.summary.txt` match the target Safe before importing. The summary is the only safeguard. |
 | Integration tests fail with `ENOENT` or `EINVAL` for tsx | Windows-specific issue with `execFileSync` | Ensure `shell: true` is set in test helpers (already fixed) |
 | Integration tests show `MISSING` entries | Fixture contains addresses not present on the new contract | Run `npm run lock-verify-json -- --network sepolia --auto-fix` to clean the fixture |
 
@@ -690,12 +1003,15 @@ Generate a batch with realistic OMA amounts (not just 1.0 OMA test values). Use 
 
 ### 4. Revert Behavior
 
-Generate an `addLocks` batch for wallets that already have locks on Sepolia. Import and attempt to execute in Safe. Verify:
+Generate an `addLocks` batch for wallets that already have locks on Sepolia. Import and attempt to execute in Safe. Verify (see Procedures 7–10):
 
-- [ ] The Safe transaction reverts with `LockExist`
+- [ ] The Safe transaction reverts with `LockExist` (Procedure 7)
 - [ ] Document what the revert looks like in Safe UI (error message, transaction status)
 - [ ] Confirm no partial execution occurred (all-or-nothing behavior)
-- [ ] Repeat with `updateLocks` for wallets that have no lock — verify `NoLock` revert
+- [ ] `updateLocks` for wallets with no lock — script rejects at preflight with `NoLock` (Procedure 8)
+- [ ] `lockEndOffsetMonths <= cliffOffsetMonths` — script rejects at validation (Procedure 9)
+- [ ] `slash` on staked wallet — script hard error before generating JSON (Procedure 10a)
+- [ ] `slash` on wallet with no lock — script hard error (Procedure 10b)
 
 ### 5. Multi-Signer Verification
 
@@ -714,6 +1030,23 @@ Generate and execute an `updateLocks` batch on Sepolia for wallets that were pre
 - [ ] `lock-status` shows updated cliff and lockEnd dates
 - [ ] `lock-verify-json` reports entries as OK after fixture auto-update
 - [ ] Original lock amount is unchanged
+
+### 7. Operational Error Handling
+
+Verify operator-facing errors are documented and recognizable (see Procedures 11–13):
+
+- [ ] Underfunded Safe produces `GS013` revert — root cause and fix documented (Procedure 11)
+- [ ] Single-transaction batch `GS013` workaround confirmed working (Procedure 17)
+- [ ] Unauthorized Safe execution — error documented (Procedure 12)
+- [ ] Wrong-network JSON import — Safe UI behavior documented (Procedure 13)
+
+### 8. Edge Cases
+
+Verify edge-case behaviors before mainnet (see Procedures 17–18):
+
+- [ ] Single-transaction batch executes successfully via approve(0) workaround (Procedure 17)
+- [ ] Fully vested wallet accepts `updateLocks` (Procedure 18)
+- [ ] Script validation rejects: duplicate addresses, `--max-total-pct` exceeded, `--require-amount-wei` without column (Procedures 14–16, also covered by automated tests)
 
 ---
 
