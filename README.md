@@ -247,13 +247,13 @@ Reviewers open the pending transaction in Safe (`safe.global` or the Safe mobile
 5. Optional: download `safe-tx.json` and verify SHA-256 against the summary file putting this in the command line: `shasum -a 256 safe-tx.json`.
 6. At least one reviewer should validate using the Safe mobile app.
 
-For additional verification using ChatGPT Atlas as a transaction decoder and consistency checker, see [Atlas + Safe Operations Manual](docs/safe-operations-atlas.md).
+For additional verification using an LLM as a transaction decoder and consistency checker, see [Safe Transaction Verification with LLM Review](docs/safe-operations-llm.md).
 
 ##### LLM-Assisted Review (Recommended)
 
 The verification steps above involve tedious field-by-field comparison between the summary file and the Safe UI. An LLM can reduce human error by performing this comparison systematically. The LLM is a verification aid — it flags mismatches, but the reviewer makes the final decision.
 
-Use the following prompt in any LLM chat interface. Paste the full contents of `safe-tx.summary.txt` where indicated, and either paste the decoded transaction details from the Safe UI or (if using Atlas) let it read the Safe page directly.
+Use the following prompt in any LLM chat interface. Paste the full contents of `safe-tx.summary.txt` where indicated, and paste the decoded transaction details from the Safe UI (or upload PDF captures of the Safe screens — see [Safe Transaction Verification with LLM Review](docs/safe-operations-llm.md) for the PDF workflow).
 
 ```
 You are helping a reviewer verify a Safe (Gnosis Safe) multisig transaction
@@ -276,7 +276,7 @@ Here is the summary file:
 Here are the decoded transaction details from Safe:
 
 ---BEGIN SAFE DETAILS---
-[PASTE DECODED TRANSACTION DETAILS FROM SAFE UI HERE, OR LET ATLAS READ THE PAGE]
+[PASTE DECODED TRANSACTION DETAILS FROM SAFE UI HERE, OR UPLOAD PDF CAPTURES]
 ---END SAFE DETAILS---
 
 Please do the following:
