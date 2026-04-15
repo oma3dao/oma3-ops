@@ -1,6 +1,15 @@
 import { formatUnits } from 'ethers';
+import { relative, resolve } from 'node:path';
 import { formatUtcSeconds, shortFingerprint } from './hash-utils.js';
 import type { Operation } from './safe-builder.js';
+
+/** Use repo-relative paths in summaries so committed artifacts do not embed absolute machine paths. */
+export function formatInputCsvPathForSummary(inputPath: string): string {
+  const abs = resolve(inputPath);
+  const rel = relative(process.cwd(), abs);
+  const display = rel && !rel.startsWith('..') ? rel : abs;
+  return display.replace(/\\/g, '/');
+}
 
 export interface SummaryTransaction {
   readonly method: Operation;
@@ -55,7 +64,7 @@ export function renderSummary(params: SummaryParams): string {
   lines.push(`Anchor Date UTC: ${params.anchorDateUtc}`);
   lines.push(`OMALock Contract: ${params.lockContract}`);
   lines.push(`OMA Token Contract: ${params.omaToken}`);
-  lines.push(`Input CSV: ${params.inputCsv}`);
+  lines.push(`Input CSV: ${formatInputCsvPathForSummary(params.inputCsv)}`);
   lines.push(`Rows Parsed: ${params.rowsParsed.toString()}`);
   lines.push('Validation: PASS');
   lines.push(`Transactions: ${params.transactions.length.toString()}`);

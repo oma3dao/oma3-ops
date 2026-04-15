@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { renderSummary, type SummaryParams } from '../../src/summary-builder.js';
+import { resolve } from 'node:path';
+import {
+  formatInputCsvPathForSummary,
+  renderSummary,
+  type SummaryParams,
+} from '../../src/summary-builder.js';
 
 const LOCK_CONTRACT = '0x2f38D6cCB480d5C7e68d11b5a02f2c2451543F58';
 const OMA_TOKEN = '0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf';
@@ -39,6 +44,13 @@ function makeParams(overrides?: Partial<SummaryParams>): SummaryParams {
     ...overrides,
   };
 }
+
+describe('formatInputCsvPathForSummary', () => {
+  it('returns repo-relative path when input is under cwd', () => {
+    const abs = resolve(process.cwd(), 'data', 'runs', 'sepolia', 'input.csv');
+    expect(formatInputCsvPathForSummary(abs)).toBe('data/runs/sepolia/input.csv');
+  });
+});
 
 describe('renderSummary', () => {
   it('starts with OMA3 OPS TRANSACTION SUMMARY', () => {

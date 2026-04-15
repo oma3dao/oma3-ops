@@ -429,6 +429,7 @@ describeIf('end-to-end integration', () => {
 
     const addLocksEntries = afterAdd.filter((e) => e.source.startsWith('addLocks:'));
     const updateLocksEntries = afterUpdate.filter((e) => e.source.startsWith('updateLocks:'));
+    expect(addLocksEntries.length).toBe(2);
     expect(updateLocksEntries.length).toBe(2);
 
     expect(afterUpdate.length).toBe(countAfterAdd);

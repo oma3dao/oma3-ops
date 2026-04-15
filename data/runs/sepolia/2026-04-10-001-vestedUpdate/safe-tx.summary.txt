@@ -6,7 +6,7 @@ Chain ID: 11155111
 Anchor Date UTC: 2025-06-01T00:00:00Z
 OMALock Contract: 0xfD1410e3A80A0f311804a09C656d98a82B7c5d9f
 OMA Token Contract: 0xd7ee0eADb283eFB6d6e628De5E31A284183f4EDf
-Input CSV: C:\Users\Giography\Documents\Wivity\oma3-ops\data\runs\sepolia\2026-04-10-001-vestedUpdate\input.csv
+Input CSV: data/runs/sepolia/2026-04-10-001-vestedUpdate/input.csv
 Rows Parsed: 1
 Validation: PASS
 Transactions: 1
