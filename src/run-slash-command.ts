@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { formatUnits, getAddress, Interface, JsonRpcProvider } from 'ethers';
+import { formatInputCsvPathForSummary } from './summary-builder.js';
 import {
   assertNoUnknownOptions,
   getBooleanFlag,
@@ -122,7 +123,7 @@ function renderSlashSummary(params: {
   lines.push(`OMALock Contract: ${params.lockContract}`);
   lines.push(`OMA Token Contract: ${params.omaToken}`);
   lines.push(`Destination (--to): ${params.to}`);
-  lines.push(`Input CSV: ${params.inputCsv}`);
+  lines.push(`Input CSV: ${formatInputCsvPathForSummary(params.inputCsv)}`);
   lines.push(`Rows Parsed: ${params.rowsParsed.toString()}`);
   lines.push('Validation: PASS');
   lines.push(`Transactions: ${params.transactions.length.toString()}`);

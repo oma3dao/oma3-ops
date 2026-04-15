@@ -3,19 +3,40 @@ import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from 'no
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { Interface, JsonRpcProvider, getAddress, formatUnits } from 'ethers';
+import { loadFixtures, type KnownLockEntry } from '../../src/known-locks.js';
+import { getNetworkConfig } from '../../src/config.js';
 
 const RPC_URL = process.env.OMA3_OPS_RPC_URL_SEPOLIA;
 
 // Skip all integration tests if no RPC URL is configured
 const describeIf = RPC_URL ? describe : describe.skip;
 
-// Addresses for Sepolia testing.
-// Address 0x01 has no lock on Sepolia (it's a precompile).
-// For "wallet with lock" tests, set OMA3_OPS_WALLET_WITH_LOCK_SEPOLIA to a known
-// wallet address that has an active lock on the Sepolia OMALock contract.
 const WALLET_NO_LOCK = '0x0000000000000000000000000000000000000001';
 const ANOTHER_WALLET = '0x0000000000000000000000000000000000000002';
 const WALLET_WITH_LOCK = process.env.OMA3_OPS_WALLET_WITH_LOCK_SEPOLIA;
+
+const LOCK_ABI = [
+  'function getLock(address wallet_) view returns (tuple(uint40 timestamp, uint40 cliffDate, uint40 lockEndDate, uint96 amount, uint96 claimedAmount, uint96 stakedAmount, uint96 slashedAmount) lock, uint96 unlockedAmount)',
+  'function omaToken() view returns (address)',
+] as const;
+const TOKEN_ABI = ['function decimals() view returns (uint8)'] as const;
+
+const FIXTURE_PATH = resolve(process.cwd(), 'data', 'sepolia-known-locks.json');
+
+function getUniqueFixtureAddresses(): string[] {
+  const entries = loadFixtures(FIXTURE_PATH);
+  const seen = new Set<string>();
+  const addresses: string[] = [];
+  for (const entry of entries) {
+    const lower = entry.address.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      addresses.push(entry.address);
+    }
+  }
+  return addresses;
+}
 
 let tmpDir: string;
 
@@ -33,6 +54,7 @@ function runLockStatus(args: string[]): string {
     encoding: 'utf8',
     env: { ...process.env, OMA3_OPS_RPC_URL_SEPOLIA: RPC_URL },
     timeout: 30000,
+    shell: true,
   });
 }
 
@@ -51,6 +73,7 @@ function runLockStatusExpectError(args: string[]): string {
       env: { ...process.env, OMA3_OPS_RPC_URL_SEPOLIA: RPC_URL },
       timeout: 30000,
       stdio: ['pipe', 'pipe', 'pipe'],
+      shell: true,
     });
     throw new Error('Expected command to fail');
   } catch (err: unknown) {
@@ -110,9 +133,10 @@ describeIf('lock-status integration', () => {
     expect(results).toHaveLength(2);
   });
 
-  it('batch via --csv', () => {
+  it('batch via --csv from fixture addresses', () => {
+    const addresses = getUniqueFixtureAddresses();
     const csvPath = join(tmpDir, 'wallets.csv');
-    writeFileSync(csvPath, `address\n${WALLET_NO_LOCK}\n${ANOTHER_WALLET}\n`, 'utf8');
+    writeFileSync(csvPath, 'address\n' + addresses.join('\n') + '\n', 'utf8');
     const outPath = join(tmpDir, 'batch.json');
 
     runLockStatus([
@@ -122,8 +146,15 @@ describeIf('lock-status integration', () => {
       '--out', outPath,
     ]);
 
-    const results = JSON.parse(readFileSync(outPath, 'utf8')) as unknown[];
-    expect(results).toHaveLength(2);
+    const results = JSON.parse(readFileSync(outPath, 'utf8')) as Array<Record<string, unknown>>;
+    expect(results).toHaveLength(addresses.length);
+
+    for (const addr of addresses) {
+      const match = results.find(
+        (r) => (r.address as string).toLowerCase() === addr.toLowerCase(),
+      );
+      expect(match, `result should include ${addr}`).toBeDefined();
+    }
   });
 
   it('--out writes JSON file', () => {
@@ -273,4 +304,115 @@ describeIfLocked('lock-status integration (hasLock: true)', () => {
     expect(locked!.amountWei).not.toBeNull();
     expect(unlocked!.amountWei).toBeNull();
   });
+});
+
+describeIf('lock-status cross-verification against direct RPC', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'lock-status-xverify-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('lock-status output matches direct getLock() RPC for all fixture wallets', async () => {
+    const network = getNetworkConfig('sepolia');
+    const lockIface = new Interface(LOCK_ABI);
+    const tokenIface = new Interface(TOKEN_ABI);
+    const provider = new JsonRpcProvider(RPC_URL);
+
+    const omaTokenCallData = lockIface.encodeFunctionData('omaToken', []);
+    const omaTokenResult = await provider.call({ to: network.omaLock, data: omaTokenCallData });
+    const omaToken = getAddress(lockIface.decodeFunctionResult('omaToken', omaTokenResult)[0] as string);
+
+    const decimalsResult = await provider.call({ to: omaToken, data: tokenIface.encodeFunctionData('decimals', []) });
+    const decimals = Number(tokenIface.decodeFunctionResult('decimals', decimalsResult)[0] as bigint);
+
+    const addresses = getUniqueFixtureAddresses();
+
+    const outPath = join(tmpDir, 'xverify.json');
+    runLockStatus([
+      '--wallet', ...addresses,
+      '--network', 'sepolia',
+      '--rpc-url', RPC_URL!,
+      '--out', outPath,
+    ]);
+    const cliResults = JSON.parse(readFileSync(outPath, 'utf8')) as Array<Record<string, unknown>>;
+
+    for (const addr of addresses) {
+      const cliResult = cliResults.find(
+        (r) => (r.address as string).toLowerCase() === addr.toLowerCase(),
+      );
+      expect(cliResult, `lock-status should include ${addr}`).toBeDefined();
+
+      try {
+        const callData = lockIface.encodeFunctionData('getLock', [addr]);
+        const result = await provider.call({ to: network.omaLock, data: callData });
+        const decoded = lockIface.decodeFunctionResult('getLock', result);
+        const lock = decoded[0] as {
+          timestamp: bigint; cliffDate: bigint; lockEndDate: bigint;
+          amount: bigint; claimedAmount: bigint; stakedAmount: bigint; slashedAmount: bigint;
+        };
+        const unlockedAmount = decoded[1] as bigint;
+
+        expect(cliResult!.hasLock, `${addr} hasLock`).toBe(true);
+        expect(cliResult!.timestamp, `${addr} timestamp`).toBe(Number(lock.timestamp));
+        expect(cliResult!.cliffDate, `${addr} cliffDate`).toBe(Number(lock.cliffDate));
+        expect(cliResult!.lockEndDate, `${addr} lockEndDate`).toBe(Number(lock.lockEndDate));
+        expect(cliResult!.amountWei, `${addr} amountWei`).toBe(lock.amount.toString());
+        expect(cliResult!.claimedAmountWei, `${addr} claimedAmountWei`).toBe(lock.claimedAmount.toString());
+        expect(cliResult!.stakedAmountWei, `${addr} stakedAmountWei`).toBe(lock.stakedAmount.toString());
+        expect(cliResult!.slashedAmountWei, `${addr} slashedAmountWei`).toBe(lock.slashedAmount.toString());
+        expect(cliResult!.unlockedAmountWei, `${addr} unlockedAmountWei`).toBe(unlockedAmount.toString());
+        expect(cliResult!.amount, `${addr} amount`).toBe(formatUnits(lock.amount, decimals));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes('NoLock') || message.includes('0xd8216464')) {
+          expect(cliResult!.hasLock, `${addr} hasLock (no lock)`).toBe(false);
+        } else {
+          throw err;
+        }
+      }
+    }
+  }, 90_000);
+
+  it('fixture immutable fields match on-chain for wallets with locks', async () => {
+    const network = getNetworkConfig('sepolia');
+    const lockIface = new Interface(LOCK_ABI);
+    const provider = new JsonRpcProvider(RPC_URL);
+
+    const entries = loadFixtures(FIXTURE_PATH);
+    const seen = new Set<string>();
+    let verifiedCount = 0;
+
+    for (const entry of entries) {
+      const lower = entry.address.toLowerCase();
+      if (seen.has(lower)) continue;
+      seen.add(lower);
+
+      try {
+        const callData = lockIface.encodeFunctionData('getLock', [entry.address]);
+        const result = await provider.call({ to: network.omaLock, data: callData });
+        const decoded = lockIface.decodeFunctionResult('getLock', result);
+        const lock = decoded[0] as {
+          amount: bigint; cliffDate: bigint; lockEndDate: bigint;
+        };
+
+        const onChainAmount = formatUnits(lock.amount, 18);
+        expect(entry.amount, `${entry.address} amount`).toBe(onChainAmount);
+        expect(entry.cliffDate, `${entry.address} cliffDate`).toBe(Number(lock.cliffDate));
+        expect(entry.lockEndDate, `${entry.address} lockEndDate`).toBe(Number(lock.lockEndDate));
+        verifiedCount++;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes('NoLock') && !message.includes('0xd8216464')) {
+          throw err;
+        }
+      }
+    }
+
+    expect(verifiedCount, 'at least one fixture wallet should have an on-chain lock').toBeGreaterThan(0);
+  }, 90_000);
 });

@@ -460,7 +460,7 @@ data/
 
 #### Known Lock Files
 
-`<network>-known-locks.json` — JSON array of wallet lock records, newest first. Automatically maintained by `lock-add-locks`, `lock-update-locks`, and `lock-verify-json`.
+`<network>-known-locks.json` — JSON array of wallet lock records, newest first. Automatically maintained by `lock-add-locks`, `lock-update-locks`, and `lock-verify-json`. Each wallet address must appear **at most once**; duplicate rows for the same address mean the file is inconsistent. After reconciling with `lock-verify-json --auto-fix`, remove any remaining duplicate addresses manually (keep the entry that matches on-chain state). The verify command updates values per row but does not merge duplicate rows.
 
 - `lock-add-locks`: prepends new entries for all wallets in the run.
 - `lock-update-locks`: removes existing entries for updated wallets, then prepends new entries with updated dates.
