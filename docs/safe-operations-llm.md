@@ -151,6 +151,9 @@ Approved signers:
 Approved / expected contract addresses (if relevant):
 [PASTE APPROVED CONTRACTS HERE]
 
+Hardware Wallet Model:
+[INSERT HARDWARE WALLET MODEL HERE]
+
 Expected intent (describe what this transaction is supposed to do):
 [e.g. "Remove signer 0xABC and lower threshold to 2/3" or "Add locks
 for 15 wallets from March batch per summary file"]
@@ -163,14 +166,20 @@ https://github.com/anthropics/oma3-ops#readme
 
 Please do the following:
 
-1. **List only the important addresses to verify**
+1. **Note the important addresses to verify**
 
    * Safe address
    * target contract / recipient
    * any signer addresses being added, removed, or swapped
    * any other address that matters for approval
 
-2. **Decode the calldata and verify consistency**
+2. **Compare against the approved signer list**
+
+   * note any signer being added, removed, or changed that is not expected
+   * note any threshold change
+   * note any ownership or governance change
+
+3. **Decode the calldata and verify consistency**
 
    * Decode the raw calldata from the Data field and verify it is consistent
      with the visible transaction description
@@ -181,13 +190,7 @@ Please do the following:
    * If ANY of these (visible description, decoded calldata, hash, expected
      intent) are inconsistent, flag it as SUSPICIOUS and recommend NOT signing
 
-3. **Compare against the approved signer list**
-
-   * flag any signer being added, removed, or changed that is not expected
-   * flag any threshold change
-   * flag any ownership or governance change
-
-4. **Flag anything suspicious or higher risk**
+4. **Note anything suspicious or higher risk**
 
    * delegatecall
    * MultiSend / batch
@@ -201,27 +204,22 @@ Please do the following:
    * unusually large transfer amounts or unexpected recipients for
      fund transfers
 
-5. **Tell me what to verify on my device**
-
-   * If I am using a Nano S–type device, tell me which hash to compare
-   * If I am using a Flex / Stax–type device, tell me which addresses /
-     fields to confirm
-
-6. **Verify confirmation pages**
+5. **Verify confirmation pages**
 
    * For each confirmation page PDF, verify the details are consistent
      with the transaction detail page
-   * Flag anything that differs between the confirmation pages and the
+   * Note anything that differs between the confirmation pages and the
      main transaction view
 
-7. End with a short conclusion in this format:
+6. Output the following:
 
-   * **Expected / Unexpected**
-   * **Main action:** ...
-   * **Addresses to verify:** ...
-   * **Hardware wallet check:** [exact hash or data fields to confirm
-     on device]
-   * **Risk notes:** ...
+   * **Expected / Unexpected Transaction Details**
+   * **Main action of the transaction** ...
+   * **Confirmation of all transaction values**
+   * **Short risk notes, including items in #4** ...
+   * **Hardware wallet check:** [exact fields to confirm on device]
+      * If I am using a Nano S–type device, tell me which hash to compare and any other values that show up on this device
+      * If I am using a Flex / Stax–type device, output the call data, the addresses, and other fields to confirm
 ```
 
 ---
