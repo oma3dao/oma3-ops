@@ -1,5 +1,5 @@
 {
-  "_comment": "Source of truth for authorized addresses across all OMA3 networks. Machine-readable. Consumed by check-wallet-sync and available to third-party verifiers via raw GitHub URL.",
+  "_comment": "Source of truth for OMA3-operated internal wallet addresses across all networks. Machine-readable. Used by check-wallet-sync and deployment tooling.",
   "addresses": [
     {
       "address": "0x8e6aB187BD083b54156c6cF3a54351Eec4742319",

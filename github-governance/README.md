@@ -157,6 +157,64 @@ These changes require a second pair of eyes regardless of urgency:
 
 If a red-zone change is truly urgent and no reviewer is available, escalate — don't self-merge.
 
+## Hardening Requirements
+
+A repo is considered hardened when all of the following are in place:
+
+| Requirement                         | Description                                                   |
+| ----------------------------------- | ------------------------------------------------------------- |
+| `.github/workflows/ci.yml`          | CI workflow with a job named `ci`                             |
+| `.github/PULL_REQUEST_TEMPLATE.md`  | Standardized PR template                                      |
+| Ruleset imported                    | `critical.json` or `standard.json` imported via GitHub UI     |
+| Ruleset enforcement active          | Enforcement set to Active in repo settings                    |
+| Bypass configured                   | `maintainers` team set as bypass actor (pull request only)    |
+
+### Hardening Status
+
+| Repository                           | CI  | PR Template | Ruleset  | Enforcement | Bypass |
+| ------------------------------------ | --- | ----------- | -------- | ----------- | ------ |
+| `rep-attestation-frontend`           | ✅  | ✅          | critical | ✅ active   | ✅     |
+| `app-registry-frontend`              | ✅  | ✅          | critical | ✅ active   | ✅     |
+| `omatrust-backend`                   | ✅  | ✅          | critical | ✅ active   | ✅     |
+| `omatrust-api-gateway`               | ✅  | ✅          | critical | ✅ active   | ✅     |
+| `omatrust-widgets`                   | ✅  | ✅          | critical | ✅ active   | ✅     |
+| `omatrust-sdk`                       | ✅  | ✅          | critical | ✅ active   | ✅     |
+| `oma3-ops`                           | ✅  | ✅          | critical | ✅ active   | ✅     |
+| `app-registry-evm-solidity`          | ✅  | ✅          | critical | ⬜ pending  | ⬜     |
+| `rep-attestation-tools-evm-solidity` | ✅  | ✅          | critical | ✅ active   | ✅     |
+| `developer-docs`                     | ✅  | ✅          | standard | ✅ active   | ✅     |
+| `omatrust-landing`                   | ✅  | ✅          | standard | ✅ active   | ✅     |
+| `omatrust-docs`                      | ❌  | ❌          | standard | ✅ active   | ✅     |
+
+Update this table as rulesets are imported.
+
+## Exceptions and Rationale
+
+### Repos with no CI
+
+| Repository         | Reason                                                                                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `omatrust-docs`    | Pure markdown documentation. No `package.json`, no build step, nothing to compile or lint. The `standard.json` ruleset still enforces PR-based workflow and review. |
+
+### Repos with minimal CI
+
+| Repository                           | CI Steps       | Reason                                                                                                                        |
+| ------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------ |
+| `omatrust-api-gateway`               | typecheck only | Vercel serverless functions — only 7 TypeScript files, no build output, no tests. Vercel handles compilation at deploy time. Typecheck catches type errors. |
+| `developer-docs`                     | build only     | Docusaurus site. Build validates that docs compile. No linter or tests configured. |
+
+### Why only two categories
+
+Adding more categories means more rulesets to maintain and more decisions about which category a repo belongs in. With two people, the overhead isn't worth it. If a repo doesn't clearly fit `standard`, it's `critical`.
+
+### Why only 1 required reviewer
+
+We are a two-person team. Requiring two reviewers would mean every PR needs both people, which defeats the purpose of async work across time zones.
+
+### Why tests are not required
+
+Tests run in CI for visibility but don't block merges. This avoids a chicken-and-egg problem: the test engineer writes tests that expose implementation bugs, but can't merge the tests until the bugs are fixed. Separating the `test` job from the required `ci` job lets both roles work independently.
+
 ## Updating Rulesets
 
 Edit the JSON file in this folder, then re-import or update via the [GitHub Rulesets API](https://docs.github.com/en/rest/repos/rules). This repo (`oma3-ops`) is the central source of truth. Do not hand-edit imported rulesets in individual repos unless the change should also be reflected here.
@@ -189,6 +247,6 @@ Create these labels in each repository:
 
 ## Notes
 
-- **`omatrust-api-gateway`** has a minimal `package.json` with only `typescript` as a devDep. Its CI runs `npm run typecheck` (`tsc --noEmit`).
 - **`omatrust-widgets`** and **`omatrust-landing`** use pnpm, not npm. Their CI workflows use `pnpm install --frozen-lockfile`.
 - **`strict_required_status_checks_policy`** in `critical.json` requires the branch to be up-to-date with `main` before merging. If this causes too much friction, set it to `false`.
+- The full repository catalog (what each repo does, deprecated repos) lives in [`omatrust-docs/README.md`](https://github.com/oma3dao/omatrust-docs).
