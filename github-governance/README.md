@@ -33,6 +33,7 @@ Both share the same baseline rules (PR required, 1 approval, squash only, etc.).
 | `critical.json`                      | GitHub ruleset for critical repos — import via GitHub UI   |
 | `standard.json`                      | GitHub ruleset for standard repos — import via GitHub UI   |
 | `PULL_REQUEST_TEMPLATE.md`           | Canonical PR template — copied to each repo's `.github/`   |
+| `enforce-branch-source.yml`          | Branch enforcement workflow — copied to repos that need it |
 
 ## Repository Categories
 
@@ -40,26 +41,26 @@ Both share the same baseline rules (PR required, 1 approval, squash only, etc.).
 
 Repos where a mistake can break production, deployment, SDK consumers, trust logic, or onchain behavior.
 
-| Repository                           | CI Steps (required)          | Test Job |
-| ------------------------------------ | ---------------------------- | -------- |
-| `rep-attestation-frontend`           | lint, typecheck, build       | yes      |
-| `app-registry-frontend`              | lint, typecheck, build       | yes      |
-| `omatrust-backend`                   | lint, typecheck, build       | yes      |
-| `omatrust-api-gateway`               | typecheck                    | no       |
-| `omatrust-widgets`                   | typecheck, build             | no       |
-| `omatrust-sdk`                       | typecheck, build             | yes      |
-| `oma3-ops`                           | typecheck, build             | yes      |
-| `app-registry-evm-solidity`          | compile                      | yes      |
-| `rep-attestation-tools-evm-solidity` | compile                      | yes      |
+| Repository                           | CI Steps (required)          | Test Job | Branch Enforcement |
+| ------------------------------------ | ---------------------------- | -------- | ------------------ |
+| `rep-attestation-frontend`           | lint, typecheck, build       | yes      | ✅                 |
+| `app-registry-frontend`              | lint, typecheck, build       | yes      | ✅                 |
+| `omatrust-backend`                   | lint, typecheck, build       | yes      | ✅                 |
+| `omatrust-api-gateway`               | typecheck                    | no       | ✅                 |
+| `omatrust-widgets`                   | typecheck, build             | no       | ⬜ pending         |
+| `omatrust-sdk`                       | typecheck, build             | yes      | ❌                 |
+| `oma3-ops`                           | typecheck, build             | yes      | ❌                 |
+| `app-registry-evm-solidity`          | compile                      | yes      | ❌                 |
+| `rep-attestation-tools-evm-solidity` | compile                      | yes      | ❌                 |
 
 ### `standard`
 
 Repos where mistakes are usually recoverable and lower-risk.
 
-| Repository                           | CI Steps (required)          | Test Job |
-| ------------------------------------ | ---------------------------- | -------- |
-| `developer-docs`                     | build                        | no       |
-| `omatrust-landing`                   | typecheck, build             | no       |
+| Repository                           | CI Steps (required)          | Test Job | Branch Enforcement |
+| ------------------------------------ | ---------------------------- | -------- | ------------------ |
+| `developer-docs`                     | build                        | no       | ❌                 |
+| `omatrust-landing`                   | typecheck, build             | no       | ❌                 |
 
 ### Exceptions
 
@@ -105,6 +106,26 @@ Repos with tests have a separate `test` job in the same workflow file. It runs i
 - The test engineer submits tests that expose implementation bugs
 - Pre-existing test failures haven't been fixed yet
 - A developer needs to merge partial work before all tests pass
+
+## Branch Enforcement
+
+Some repos restrict which branches can open PRs to `main`. This is enforced by a workflow file (`.github/workflows/enforce-branch-source.yml`) that fails if the source branch is not `staging` or `hotfix/*`.
+
+**Criteria for enforcement:** A repo should have branch enforcement when merging to `main` triggers an automatic deployment to a production environment that serves end users or handles trust-sensitive data.
+
+**Enforce when:**
+- The repo auto-deploys from `main` (Vercel, AWS, etc.) — a bad merge goes live immediately
+- The repo serves end users directly (frontends, APIs, embeddable widgets)
+- Multiple contributors or automated agents open PRs — more surface area for accidental merges
+
+**Skip when:**
+- The repo is a library/SDK consumed via versioned releases — `main` isn't live until you publish
+- The repo is documentation-only or internal tooling — mistakes are easily reverted
+- Deployments are manual (contract deploys, script-based releases)
+
+**Canonical workflow file:** [`enforce-branch-source.yml`](enforce-branch-source.yml) in this folder. Copy to `.github/workflows/` in repos that need it.
+
+The `check-source` job is **not** added to the required status checks in `critical.json`. It runs as a separate workflow and is informational by default. To make it blocking, add `"check-source"` to `required_status_checks` in the repo's imported ruleset.
 
 ## Setup Order
 
@@ -168,23 +189,24 @@ A repo is considered hardened when all of the following are in place:
 | Ruleset imported                    | `critical.json` or `standard.json` imported via GitHub UI     |
 | Ruleset enforcement active          | Enforcement set to Active in repo settings                    |
 | Bypass configured                   | `maintainers` team set as bypass actor (pull request only)    |
+| Branch enforcement (if applicable)  | `enforce-branch-source.yml` added for auto-deploying repos    |
 
 ### Hardening Status
 
-| Repository                           | CI  | PR Template | Ruleset  | Enforcement | Bypass |
-| ------------------------------------ | --- | ----------- | -------- | ----------- | ------ |
-| `rep-attestation-frontend`           | ✅  | ✅          | critical | ✅ active   | ✅     |
-| `app-registry-frontend`              | ✅  | ✅          | critical | ✅ active   | ✅     |
-| `omatrust-backend`                   | ✅  | ✅          | critical | ✅ active   | ✅     |
-| `omatrust-api-gateway`               | ✅  | ✅          | critical | ✅ active   | ✅     |
-| `omatrust-widgets`                   | ✅  | ✅          | critical | ✅ active   | ✅     |
-| `omatrust-sdk`                       | ✅  | ✅          | critical | ✅ active   | ✅     |
-| `oma3-ops`                           | ✅  | ✅          | critical | ✅ active   | ✅     |
-| `app-registry-evm-solidity`          | ✅  | ✅          | critical | ⬜ pending  | ⬜     |
-| `rep-attestation-tools-evm-solidity` | ✅  | ✅          | critical | ✅ active   | ✅     |
-| `developer-docs`                     | ✅  | ✅          | standard | ✅ active   | ✅     |
-| `omatrust-landing`                   | ✅  | ✅          | standard | ✅ active   | ✅     |
-| `omatrust-docs`                      | ❌  | ❌          | standard | ✅ active   | ✅     |
+| Repository                           | CI  | PR Template | Ruleset  | Enforcement | Bypass | Branch Enforce |
+| ------------------------------------ | --- | ----------- | -------- | ----------- | ------ | -------------- |
+| `rep-attestation-frontend`           | ✅  | ✅          | critical | ✅ active   | ✅     | ✅             |
+| `app-registry-frontend`              | ✅  | ✅          | critical | ✅ active   | ✅     | ✅             |
+| `omatrust-backend`                   | ✅  | ✅          | critical | ✅ active   | ✅     | ✅             |
+| `omatrust-api-gateway`               | ✅  | ✅          | critical | ✅ active   | ✅     | ✅             |
+| `omatrust-widgets`                   | ✅  | ✅          | critical | ✅ active   | ✅     | ⬜ pending     |
+| `omatrust-sdk`                       | ✅  | ✅          | critical | ✅ active   | ✅     | n/a            |
+| `oma3-ops`                           | ✅  | ✅          | critical | ✅ active   | ✅     | n/a            |
+| `app-registry-evm-solidity`          | ✅  | ✅          | critical | ⬜ pending  | ⬜     | n/a            |
+| `rep-attestation-tools-evm-solidity` | ✅  | ✅          | critical | ✅ active   | ✅     | n/a            |
+| `developer-docs`                     | ✅  | ✅          | standard | ✅ active   | ✅     | n/a            |
+| `omatrust-landing`                   | ✅  | ✅          | standard | ✅ active   | ✅     | n/a            |
+| `omatrust-docs`                      | ❌  | ❌          | standard | ✅ active   | ✅     | n/a            |
 
 Update this table as rulesets are imported.
 

@@ -79,7 +79,7 @@ Saving the page as a PDF eliminates this attack surface entirely. The browser's 
 
 Before saving, expand every relevant field so the PDF captures the full transaction data:
 
-* Expand either the **"Data" tab** (shows raw calldata — needed for Flex/Stax verification) or the **"Hashes" tab** (shows safeTxHash — needed for Nano S verification)
+* Expand either the **"Data" tab** (click "more" to show raw calldata — needed for Flex/Stax verification) or the **"Hashes" tab** (shows safeTxHash — needed for Nano S verification)
 * Expand any decoded parameter sections so all addresses, amounts, and function details are visible
 * If the transaction is a MultiSend/batch, expand each inner call
 
