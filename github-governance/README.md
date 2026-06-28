@@ -199,7 +199,7 @@ A repo is considered hardened when all of the following are in place:
 | `app-registry-frontend`              | ✅  | ✅          | critical | ✅ active   | ✅     | ✅             |
 | `omatrust-backend`                   | ✅  | ✅          | critical | ✅ active   | ✅     | ✅             |
 | `omatrust-api-gateway`               | ✅  | ✅          | critical | ✅ active   | ✅     | ✅             |
-| `omatrust-widgets`                   | ✅  | ✅          | critical | ✅ active   | ✅     | ⬜ pending     |
+| `omatrust-widgets`                   | ✅  | ✅          | critical | ✅ active   | ✅     | ✅             |
 | `omatrust-sdk`                       | ✅  | ✅          | critical | ✅ active   | ✅     | n/a            |
 | `oma3-ops`                           | ✅  | ✅          | critical | ✅ active   | ✅     | n/a            |
 | `app-registry-evm-solidity`          | ✅  | ✅          | critical | ⬜ pending  | ⬜     | n/a            |
@@ -207,6 +207,8 @@ A repo is considered hardened when all of the following are in place:
 | `developer-docs`                     | ✅  | ✅          | standard | ✅ active   | ✅     | n/a            |
 | `omatrust-landing`                   | ✅  | ✅          | standard | ✅ active   | ✅     | n/a            |
 | `omatrust-docs`                      | ❌  | ❌          | standard | ✅ active   | ✅     | n/a            |
+| `mpas-docs`                          | ❌  | ❌          | —        | ❌          | ❌     | n/a            |
+| `mpas-sdk`                           | ❌  | ❌          | —        | ❌          | ❌     | n/a            |
 
 Update this table as rulesets are imported.
 
