@@ -1,5 +1,7 @@
 # oma3-ops
 
+On-chain admin tooling and org-wide GitHub governance for OMA3.
+
 Command-line tools for OMA3 representatives to interact with on-chain contracts. OMA3 operates across two chains with different admin models:
 
 | Chain        | Admin Model                        | Contracts                    |
