@@ -27,10 +27,10 @@ export interface AdminWalletConfig {
 
 export const ADMIN_WALLETS: Record<string, AdminWalletConfig> = {
   'omachainTestnet': {
-    name: 'Admin Wallet (OMAchain Testnet)',
+    name: 'Admin Wallet (OMAChain Testnet)',
     address: '0x8e6aB187BD083b54156c6cF3a54351Eec4742319',
     chainId: 66238,
-    rpc: 'https://rpc.testnet.chain.oma3.org/',
+    rpc: 'https://rpc.testnet.omachain.org/',
     timelock: '0x8A4434930ef47bCaDE48e45a9979540FA839D18E',
     contracts: {
       registry: '0xB752303DECf6b2c5B12818e50Dd8A20EBe0F5F97',
@@ -39,11 +39,11 @@ export const ADMIN_WALLETS: Record<string, AdminWalletConfig> = {
     },
   },
   'omachainMainnet': {
-    name: 'Admin Wallet (OMAchain Mainnet)',
+    name: 'Admin Wallet (OMAChain Mainnet)',
     address: '0xb7Fed03367a3c37a6e04E5f9AEF753916A538cdc',
     chainId: 6623,
-    rpc: 'https://rpc.chain.oma3.org/',
-    // timelock: not yet deployed
+    rpc: 'https://rpc.omachain.org/',
+    timelock: '0xC1aCf840fa1FCD694aEe1889A5395d278CEDA326',
     contracts: {
       // Not yet deployed
     },
