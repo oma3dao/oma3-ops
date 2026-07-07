@@ -10,6 +10,8 @@ Pragmatic branch protection and CI policy for a two-person pre-launch team.
 - Emergency self-merge exists because the team spans time zones, but it has clear boundaries.
 - Two categories. That's it. If you're debating which one a repo belongs in, it's probably `critical`.
 
+> **For contributors:** The day-to-day branching and merge process is documented in [`branching-workflow.md`](branching-workflow.md). Start there if you're looking for how to create branches, open PRs, and keep staging in sync.
+
 ## How It Works
 
 **Two ruleset JSON files.** Import one per repo. Never edit them per-repo.
@@ -27,13 +29,14 @@ Both share the same baseline rules (PR required, 1 approval, squash only, etc.).
 
 ## Files in This Folder
 
-| File                                 | Purpose                                                    |
-| ------------------------------------ | ---------------------------------------------------------- |
-| `README.md`                          | This document                                              |
-| `critical.json`                      | GitHub ruleset for critical repos — import via GitHub UI   |
-| `standard.json`                      | GitHub ruleset for standard repos — import via GitHub UI   |
-| `PULL_REQUEST_TEMPLATE.md`           | Canonical PR template — copied to each repo's `.github/`   |
-| `enforce-branch-source.yml`          | Branch enforcement workflow — copied to repos that need it |
+| File                                 | Purpose                                                        |
+| ------------------------------------ | -------------------------------------------------------------- |
+| `README.md`                          | This document                                                  |
+| `critical.json`                      | GitHub ruleset for critical repos — import via GitHub UI       |
+| `standard.json`                      | GitHub ruleset for standard repos — import via GitHub UI       |
+| `PULL_REQUEST_TEMPLATE.md`           | Canonical PR template — copied to each repo's `.github/`       |
+| `enforce-branch-source.yml`          | Branch enforcement workflow — copied to repos that need it     |
+| `branching-workflow.md`              | Contributor guide — branching, merging, and sync process       |
 
 ## Repository Categories
 
@@ -127,18 +130,25 @@ Some repos restrict which branches can open PRs to `main`. This is enforced by a
 
 The `check-source` job is **not** added to the required status checks in `critical.json`. It runs as a separate workflow and is informational by default. To make it blocking, add `"check-source"` to `required_status_checks` in the repo's imported ruleset.
 
+## Main → Staging Auto-Sync
+
+Every repo has a workflow (`.github/workflows/sync-main-to-staging.yml`) that automatically merges `main` back into `staging` after any push to `main`. This prevents branch divergence.
+
+For details on why this matters, the manual fallback, and the full branching process, see [`branching-workflow.md`](branching-workflow.md).
+
 ## Setup Order
 
 For a new repository:
 
 1. Add `.github/workflows/ci.yml` with a job named `ci`. Include only steps that are real for the repo — lint if it has a linter, typecheck if it's TypeScript, build if it produces output, compile if it's Solidity. No no-op steps. If the repo has tests, add a separate `test` job in the same file (not required by the ruleset).
-2. Add `.github/PULL_REQUEST_TEMPLATE.md` (copy from this folder).
-3. Push the branch and open a PR so the `ci` check runs once.
-4. Confirm the PR shows a check named exactly `ci`.
-5. Go to the repo → **Settings** → **Rules** → **Rulesets** → **New ruleset** → **Import a ruleset**.
-6. Upload `critical.json` or `standard.json`.
-7. Set enforcement to **Active**.
-8. Update the repository tables in this README.
+2. If the new repository uses a staging branch, add `.github/workflows/sync-main-to-staging.yml` (copy from any repo that already has it). This auto-syncs `main` back into `staging` after every merge to `main`, preventing branch divergence.
+3. Add `.github/PULL_REQUEST_TEMPLATE.md` (copy from this folder).
+4. Push the branch and open a PR so the `ci` check runs once.
+5. Confirm the PR shows a check named exactly `ci`.
+6. Go to the repo → **Settings** → **Rules** → **Rulesets** → **New ruleset** → **Import a ruleset**.
+7. Upload `critical.json` or `standard.json`.
+8. Set enforcement to **Active**.
+9. Update the repository tables in this README.
 
 ## Emergency Self-Merge Policy
 
@@ -185,6 +195,7 @@ A repo is considered hardened when all of the following are in place:
 | Requirement                         | Description                                                   |
 | ----------------------------------- | ------------------------------------------------------------- |
 | `.github/workflows/ci.yml`          | CI workflow with a job named `ci`                             |
+| `.github/workflows/sync-main-to-staging.yml` | Auto-syncs main back into staging after merges       |
 | `.github/PULL_REQUEST_TEMPLATE.md`  | Standardized PR template                                      |
 | Ruleset imported                    | `critical.json` or `standard.json` imported via GitHub UI     |
 | Ruleset enforcement active          | Enforcement set to Active in repo settings                    |
