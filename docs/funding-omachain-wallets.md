@@ -62,7 +62,7 @@ Ledger Live does not support OMAChain. To sign OMAChain transactions with a Ledg
 
 Thirdweb server wallets are standard EOA addresses. To fund them:
 
-1. Get the server wallet address from Thirdweb dashboard (or from `oma3-internal-addresses.json`)
+1. Get the server wallet address from Thirdweb dashboard (or from `approved-addresses.json`)
 2. Send native OMA on OMAChain to that address using any wallet (MetaMask, Rabby, etc.)
 3. Verify the balance via the Thirdweb dashboard or an OMAChain block explorer
 
