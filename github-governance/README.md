@@ -47,7 +47,7 @@ Repos where a mistake can break production, deployment, SDK consumers, trust log
 | `app-registry-frontend`              | lint, typecheck, build       | yes      | ✅                 |
 | `omatrust-backend`                   | lint, typecheck, build       | yes      | ✅                 |
 | `omatrust-api-gateway`               | typecheck                    | no       | ✅                 |
-| `omatrust-widgets`                   | typecheck, build             | no       | ⬜ pending         |
+| `omatrust-widgets`                   | typecheck, build             | no       | ✅                 |
 | `omatrust-sdk`                       | typecheck, build             | yes      | ❌                 |
 | `oma3-ops`                           | typecheck, build             | yes      | ❌                 |
 | `app-registry-evm-solidity`          | compile                      | yes      | ❌                 |

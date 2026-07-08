@@ -125,10 +125,17 @@ async function main(): Promise<void> {
     process.exit(1);
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
-    if (msg.includes('AccessControl')) {
-      console.log('   ✅ Correctly reverted with AccessControl error');
+    // OZ v5 uses custom error AccessControlUnauthorizedAccount(address,bytes32)
+    // Selector: 0xe2517d3f
+    const data = (error as any)?.data || (error as any)?.info?.error?.data || '';
+    const isAccessControlError =
+      msg.includes('AccessControl') ||
+      (typeof data === 'string' && data.startsWith('0xe2517d3f'));
+    if (isAccessControlError) {
+      console.log('   ✅ Correctly reverted with AccessControlUnauthorizedAccount');
     } else {
       console.error(`   ❌ Reverted with unexpected error: ${msg.slice(0, 120)}`);
+      console.error(`   Data: ${typeof data === 'string' ? data.slice(0, 80) : '(none)'}`);
       console.error('   Expected AccessControl revert. This may indicate an ABI mismatch, wrong address, or RPC issue.');
       process.exit(1);
     }

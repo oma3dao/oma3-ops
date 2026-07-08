@@ -1,0 +1,21 @@
+{
+  "_comment": "OMA3-operated wallet addresses for ops tooling (deployment, admin, timelock). Attestation/issuer addresses are NOT here — those are in omatrust-backend/src/lib/routes/public/trust-anchors.ts which serves the public /trust-anchors API.",
+  "addresses": [
+    {
+      "address": "0x8e6aB187BD083b54156c6cF3a54351Eec4742319",
+      "label": "OMAChain Testnet Admin",
+      "owner": "oma3.org",
+      "vm": "eip155",
+      "environment": "testnet",
+      "roles": ["admin", "timelock-proposer", "timelock-executor"]
+    },
+    {
+      "address": "0xb7Fed03367a3c37a6e04E5f9AEF753916A538cdc",
+      "label": "OMAChain Mainnet Admin",
+      "owner": "oma3.org",
+      "vm": "eip155",
+      "environment": "mainnet",
+      "roles": ["admin", "timelock-proposer", "timelock-executor"]
+    }
+  ]
+}
