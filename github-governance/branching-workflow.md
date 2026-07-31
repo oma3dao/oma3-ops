@@ -31,7 +31,7 @@ If this returns nothing you can proceed.  If this shows any commits, staging is 
 
 - Target: `staging`
 - All feature work, bug fixes, and improvements go into `staging` first.
-- The reviewer approves and merges the PR. The author does not merge their own PR.
+- Prefer that the reviewer approves and merges. Emergency self-merge is allowed for maintainers when the other reviewer is unavailable — follow the Self-Merge section in the PR template and the policy in [`README.md`](README.md).
 
 **Multiple PRs targeting staging:** Just merge them one at a time. After PR #1 merges, GitHub may show PR #2 as "out of date" — click "Update branch" in the GitHub UI or have the author rebase. No manual sync step is needed between staging PRs. The sync step only applies after merges into `main`.
 
@@ -53,7 +53,7 @@ git push origin staging
 
 This gives `staging` the merge commit that GitHub created on `main`. Until this is done, `origin/staging` is diverged and everyone branching off it will have problems.
 
-> **Note:** Repos with the `sync-main-to-staging.yml` GitHub Action handle this automatically — the sync happens in the background after the merge button is clicked. Check if your repo has this Action installed. If it does, the manual step is a fallback in case the Action fails.
+> **Note:** Staging repos with `sync-main-to-staging.yml` handle this automatically after the merge button is clicked. The canonical workflow lives in this folder — copy it into `.github/workflows/` for repos that use `staging`. If the Action is installed, the manual step is a fallback in case it fails.
 
 ---
 
@@ -63,17 +63,19 @@ This gives `staging` the merge commit that GitHub created on `main`. Until this 
 - **Don't skip the sync step** after merging into `main`. This is the single most common cause of divergence.
 - **Don't push directly to `main` or `staging`** — all changes go through PRs.
 - **Don't branch off a local `staging` you haven't fetched** — always `git fetch origin` first.
-- **Don't merge your own PR** — the reviewer approves and merges.
+- **Don't self-merge by default** — prefer reviewer merge. Use emergency self-merge only when the other reviewer is unavailable and the change fits the repo's allowed list (see PR template / [`README.md`](README.md)).
 
 ---
 
 ## Hotfixes
 
-Hotfixes also go through staging first. Only `staging` and `hotfix/*` branches can PR into `main` (enforced by GitHub Action in repos with branch enforcement).
+Hotfixes follow the same staging path as normal work. Only `staging` and `hotfix/*` branches can PR into `main` (enforced by GitHub Action in repos with branch enforcement).
 
 1. `git fetch origin && git checkout -b hotfix/description origin/staging --no-track`
 2. PR into `staging`, get review, merge.
 3. PR `staging → main`, get review, merge.
 4. Sync step runs (manually or via Action).
+
+If a reviewer is unavailable and the fix cannot wait, a maintainer may self-merge either PR under the emergency self-merge policy — fill out the Self-Merge section, tag a post-merge reviewer, and apply the usual labels. Red-zone changes still require a second pair of eyes (or escalation).
 
 The sync step still applies — a hotfix merged into `main` creates the same divergence risk as any other merge.

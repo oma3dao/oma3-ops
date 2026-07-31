@@ -36,6 +36,7 @@ Both share the same baseline rules (PR required, 1 approval, squash only, etc.).
 | `standard.json`                      | GitHub ruleset for standard repos — import via GitHub UI       |
 | `PULL_REQUEST_TEMPLATE.md`           | Canonical PR template — copied to each repo's `.github/`       |
 | `enforce-branch-source.yml`          | Branch enforcement workflow — copied to repos that need it     |
+| `sync-main-to-staging.yml`           | Main→staging auto-sync — copied to repos that use `staging`    |
 | `branching-workflow.md`              | Contributor guide — branching, merging, and sync process       |
 
 ## Repository Categories
@@ -132,7 +133,9 @@ The `check-source` job is **not** added to the required status checks in `critic
 
 ## Main → Staging Auto-Sync
 
-Every repo has a workflow (`.github/workflows/sync-main-to-staging.yml`) that automatically merges `main` back into `staging` after any push to `main`. This prevents branch divergence.
+Repos that use a `staging` branch should have a workflow (`.github/workflows/sync-main-to-staging.yml`) that automatically merges `main` back into `staging` after any push to `main`. This prevents branch divergence. Repos without a `staging` branch do not need this workflow.
+
+**Canonical workflow file:** [`sync-main-to-staging.yml`](sync-main-to-staging.yml) in this folder. Copy to `.github/workflows/` in staging repos.
 
 For details on why this matters, the manual fallback, and the full branching process, see [`branching-workflow.md`](branching-workflow.md).
 
@@ -141,7 +144,7 @@ For details on why this matters, the manual fallback, and the full branching pro
 For a new repository:
 
 1. Add `.github/workflows/ci.yml` with a job named `ci`. Include only steps that are real for the repo — lint if it has a linter, typecheck if it's TypeScript, build if it produces output, compile if it's Solidity. No no-op steps. If the repo has tests, add a separate `test` job in the same file (not required by the ruleset).
-2. If the new repository uses a staging branch, add `.github/workflows/sync-main-to-staging.yml` (copy from any repo that already has it). This auto-syncs `main` back into `staging` after every merge to `main`, preventing branch divergence.
+2. If the new repository uses a staging branch, add `.github/workflows/sync-main-to-staging.yml` (copy from this folder). This auto-syncs `main` back into `staging` after every merge to `main`, preventing branch divergence.
 3. Add `.github/PULL_REQUEST_TEMPLATE.md` (copy from this folder). Customize the Self-Merge Policy Reference lists for that repo — keep applicable items, delete the rest, add repo-specific ones.
 4. Push the branch and open a PR so the `ci` check runs once.
 5. Confirm the PR shows a check named exactly `ci`.
@@ -171,12 +174,12 @@ A repo is considered hardened when all of the following are in place:
 | Requirement                         | Description                                                   |
 | ----------------------------------- | ------------------------------------------------------------- |
 | `.github/workflows/ci.yml`          | CI workflow with a job named `ci`                             |
-| `.github/workflows/sync-main-to-staging.yml` | Auto-syncs main back into staging after merges       |
 | `.github/PULL_REQUEST_TEMPLATE.md`  | Standardized PR template                                      |
 | Ruleset imported                    | `critical.json` or `standard.json` imported via GitHub UI     |
 | Ruleset enforcement active          | Enforcement set to Active in repo settings                    |
 | Bypass configured                   | `maintainers` team set as bypass actor (pull request only)    |
 | Branch enforcement (if applicable)  | `enforce-branch-source.yml` added for auto-deploying repos    |
+| Main→staging sync (if applicable)   | `sync-main-to-staging.yml` added for repos that use `staging` |
 
 ### Hardening Status
 
