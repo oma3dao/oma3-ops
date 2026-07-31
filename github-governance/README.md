@@ -25,7 +25,7 @@ Both share the same baseline rules (PR required, 1 approval, squash only, etc.).
 
 **Tests run separately.** Repos with tests have a second job named `test` in the same `ci.yml`. It runs in parallel with `ci` for visibility but is not required by the ruleset. This allows test-only PRs and test fixes to be merged without blocking on pre-existing test failures.
 
-**PR template.** Every repo has `.github/PULL_REQUEST_TEMPLATE.md` with risk level, summary, testing, CI status, and self-merge sections. The canonical copy lives in this folder as [`PULL_REQUEST_TEMPLATE.md`](PULL_REQUEST_TEMPLATE.md).
+**PR template.** Every repo has `.github/PULL_REQUEST_TEMPLATE.md` with a shared skeleton (risk level, summary, testing, CI status, self-merge) and a **repo-specific** self-merge policy list. The canonical copy lives in this folder as [`PULL_REQUEST_TEMPLATE.md`](PULL_REQUEST_TEMPLATE.md). When copying it into a repo, trim the catalog of allowed / red-zone examples to what applies there and add any missing items.
 
 ## Files in This Folder
 
@@ -142,7 +142,7 @@ For a new repository:
 
 1. Add `.github/workflows/ci.yml` with a job named `ci`. Include only steps that are real for the repo — lint if it has a linter, typecheck if it's TypeScript, build if it produces output, compile if it's Solidity. No no-op steps. If the repo has tests, add a separate `test` job in the same file (not required by the ruleset).
 2. If the new repository uses a staging branch, add `.github/workflows/sync-main-to-staging.yml` (copy from any repo that already has it). This auto-syncs `main` back into `staging` after every merge to `main`, preventing branch divergence.
-3. Add `.github/PULL_REQUEST_TEMPLATE.md` (copy from this folder).
+3. Add `.github/PULL_REQUEST_TEMPLATE.md` (copy from this folder). Customize the Self-Merge Policy Reference lists for that repo — keep applicable items, delete the rest, add repo-specific ones.
 4. Push the branch and open a PR so the `ci` check runs once.
 5. Confirm the PR shows a check named exactly `ci`.
 6. Go to the repo → **Settings** → **Rules** → **Rulesets** → **New ruleset** → **Import a ruleset**.
@@ -158,33 +158,9 @@ For a new repository:
 
 **How:** Open a normal PR. CI must pass. Fill out the self-merge section in the PR template. Tag a post-merge reviewer. Apply the `self-merged` and `post-merge-review-needed` labels.
 
-### Allowed self-merge examples
+### Allowed / never lists are per repository
 
-- Production outage fix
-- Broken deploy pipeline
-- Launch-blocking bug
-- Failed build blocking work
-- Low-risk typo / config fix
-- Dependency / security patch
-- Docs correction blocking external users
-- Test-only changes
-- CI / workflow fixes
-
-### Never self-merge (red-zone)
-
-These changes require a second pair of eyes regardless of urgency:
-
-- Smart contract logic
-- Contract deployment
-- Auth / signature verification
-- Permission model changes
-- Database migrations
-- Production secrets
-- GitHub Actions permission changes
-- Deployment credentials
-- Irreversible onchain changes
-- Registry identity / trust logic
-- Attestation validity logic
+The PR template skeleton is shared. The **Allowed self-merge** and **Never self-merge (red-zone)** lists are customized per repo from the catalog in [`PULL_REQUEST_TEMPLATE.md`](PULL_REQUEST_TEMPLATE.md). Contributors follow the lists in that repository's `.github/PULL_REQUEST_TEMPLATE.md`.
 
 If a red-zone change is truly urgent and no reviewer is available, escalate — don't self-merge.
 

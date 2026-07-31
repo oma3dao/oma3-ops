@@ -12,7 +12,7 @@ When a PR merges into `main`, GitHub creates a merge commit that only exists on 
 
 ```bash
 git fetch origin
-git checkout -b feature/your-branch-name origin/staging --no-track
+git checkout -b feat/your-branch-name origin/staging --no-track
 ```
 
 Always branch from `origin/staging` — never from a stale local branch, never from `main`.
