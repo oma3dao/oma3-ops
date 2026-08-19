@@ -41,7 +41,7 @@ If this returns nothing you can proceed.  If this shows any commits, staging is 
 
 1. Open a PR: `staging → main`
 2. Reviewer approves and merges it.
-3. **The person who merges immediately runs the sync step:**
+3. **Confirm that `main` is synced back into `staging`.** Repositories with `sync-main-to-staging.yml` do this automatically. If the workflow is not installed or fails, the person who merged runs the manual fallback immediately:
 
 ```bash
 git fetch origin
@@ -53,7 +53,7 @@ git push origin staging
 
 This gives `staging` the squash commit that GitHub created on `main`. Until this is done, `origin/staging` is diverged and everyone branching off it will have problems.
 
-> **Note:** Staging repos with `sync-main-to-staging.yml` handle this automatically after the merge button is clicked. The canonical workflow lives in this folder — copy it into `.github/workflows/` for repos that use `staging`. If the Action is installed, the manual step is a fallback in case it fails.
+> **Note:** The canonical workflow lives in this folder — copy it into `.github/workflows/` for repos that use `staging`.
 
 > **CI caveat:** Pushes made with `GITHUB_TOKEN` (including the auto-sync Action) don't trigger downstream workflows. CI won't run on `staging` after an auto-sync. This is fine since staging isn't gated by status checks — just don't assume CI ran there.
 
@@ -63,7 +63,7 @@ This gives `staging` the squash commit that GitHub created on `main`. Until this
 
 - **Don't branch off `main`** — ever, for any reason.
 - **Don't skip the sync step** after merging into `main`. This is the single most common cause of divergence.
-- **Don't push directly to `main` or `staging`** — all changes go through PRs.
+- **Don't push feature changes directly to `main` or `staging`** — all changes go through PRs. The documented `main` → `staging` sync, performed by the workflow or its manual fallback, is the only direct-push exception.
 - **Don't branch off a local `staging` you haven't fetched** — always `git fetch origin` first.
 - **Don't self-merge by default** — prefer reviewer merge. Use emergency self-merge only when the other reviewer is unavailable and the change fits the repo's allowed list (see PR template / [`README.md`](README.md)).
 
