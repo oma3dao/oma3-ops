@@ -2,7 +2,7 @@
 
 ## Why This Matters
 
-When a PR merges into `main`, GitHub creates a merge commit that only exists on `main`. If nobody merges `main` back into `staging` afterward, the two branches diverge — and every future PR from `staging → main` will be blocked or require manual conflict resolution.
+When a PR merges into `main`, GitHub creates a squash commit that only exists on `main` (our rulesets enforce squash-only merges with linear history). Because this squash commit has no parent relationship to `staging`, the two branches diverge if nobody merges `main` back into `staging` afterward — and every future PR from `staging → main` will be blocked or require manual conflict resolution.
 
 **The sync step after every merge into main is what keeps this workflow working.** Skip it once and everyone downstream is building on diverged state.
 
@@ -51,9 +51,11 @@ git merge origin/main --no-edit
 git push origin staging
 ```
 
-This gives `staging` the merge commit that GitHub created on `main`. Until this is done, `origin/staging` is diverged and everyone branching off it will have problems.
+This gives `staging` the squash commit that GitHub created on `main`. Until this is done, `origin/staging` is diverged and everyone branching off it will have problems.
 
 > **Note:** Staging repos with `sync-main-to-staging.yml` handle this automatically after the merge button is clicked. The canonical workflow lives in this folder — copy it into `.github/workflows/` for repos that use `staging`. If the Action is installed, the manual step is a fallback in case it fails.
+
+> **CI caveat:** Pushes made with `GITHUB_TOKEN` (including the auto-sync Action) don't trigger downstream workflows. CI won't run on `staging` after an auto-sync. This is fine since staging isn't gated by status checks — just don't assume CI ran there.
 
 ---
 

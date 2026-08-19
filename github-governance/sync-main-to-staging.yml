@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: sync-main-to-staging
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -24,8 +28,7 @@ jobs:
             git merge --abort
             gh issue create \
               --title "⚠️ Auto-sync failed: main → staging has conflicts" \
-              --body "The automatic merge of main into staging failed due to conflicts. Please resolve manually:\n\n\`\`\`bash\ngit fetch origin\ngit checkout staging\ngit merge origin/main\n# resolve conflicts\ngit push origin staging\n\`\`\`" \
-              --label "bug"
+              --body "$(printf 'The automatic merge of main into staging failed due to conflicts. Please resolve manually:\n\n```bash\ngit fetch origin\ngit checkout staging\ngit merge origin/main\n# resolve conflicts\ngit push origin staging\n```\n')"
             exit 1
           }
           git push origin staging
