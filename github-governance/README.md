@@ -10,6 +10,8 @@ Pragmatic branch protection and CI policy for a two-person pre-launch team.
 - Emergency self-merge exists because the team spans time zones, but it has clear boundaries.
 - Two categories. That's it. If you're debating which one a repo belongs in, it's probably `critical`.
 
+> **For contributors:** The day-to-day branching and merge process is documented in [`branching-workflow.md`](branching-workflow.md). Start there if you're looking for how to create branches, open PRs, and keep staging in sync. Testing philosophy and what-to-test guidance lives in [`testing-guidelines.md`](testing-guidelines.md). Guidance for humans using AI to evaluate PRs and issues lives in [`review-guidelines.md`](review-guidelines.md); automated reviewers may also adopt it explicitly.
+
 ## How It Works
 
 **Two ruleset JSON files.** Import one per repo. Never edit them per-repo.
@@ -21,19 +23,23 @@ Both share the same baseline rules (PR required, 1 approval, squash only, etc.).
 
 **One required check name: `ci`.** Every repo has its own `.github/workflows/ci.yml` with a single job named `ci`. What steps run inside that job depends on the repo — lint, typecheck, build, compile, whatever is real for that project. No no-op scripts.
 
-**Tests run separately.** Repos with tests have a second job named `test` in the same `ci.yml`. It runs in parallel with `ci` for visibility but is not required by the ruleset. This allows test-only PRs and test fixes to be merged without blocking on pre-existing test failures.
+**Tests run separately.** Repos with tests have a second job named `test` in the same `ci.yml`. It runs in parallel with `ci` for visibility but is not required by the ruleset. This allows test-only PRs that expose existing bugs, and changes affected by documented pre-existing failures, to merge without an automatic status-check block. A new test failure caused by a production-code change is still blocking evidence during review.
 
-**PR template.** Every repo has `.github/PULL_REQUEST_TEMPLATE.md` with risk level, summary, testing, CI status, and self-merge sections. The canonical copy lives in this folder as [`PULL_REQUEST_TEMPLATE.md`](PULL_REQUEST_TEMPLATE.md).
+**PR template.** Every repo has `.github/PULL_REQUEST_TEMPLATE.md` with a shared skeleton (risk level, summary, testing, CI status, self-merge) and a **repo-specific** self-merge policy list. The canonical copy lives in this folder as [`PULL_REQUEST_TEMPLATE.md`](PULL_REQUEST_TEMPLATE.md). When copying it into a repo, trim the catalog of allowed / red-zone examples to what applies there and add any missing items.
 
 ## Files in This Folder
 
-| File                                 | Purpose                                                    |
-| ------------------------------------ | ---------------------------------------------------------- |
-| `README.md`                          | This document                                              |
-| `critical.json`                      | GitHub ruleset for critical repos — import via GitHub UI   |
-| `standard.json`                      | GitHub ruleset for standard repos — import via GitHub UI   |
-| `PULL_REQUEST_TEMPLATE.md`           | Canonical PR template — copied to each repo's `.github/`   |
-| `enforce-branch-source.yml`          | Branch enforcement workflow — copied to repos that need it |
+| File                                 | Purpose                                                        |
+| ------------------------------------ | -------------------------------------------------------------- |
+| `README.md`                          | This document                                                  |
+| `critical.json`                      | GitHub ruleset for critical repos — import via GitHub UI       |
+| `standard.json`                      | GitHub ruleset for standard repos — import via GitHub UI       |
+| `PULL_REQUEST_TEMPLATE.md`           | Canonical PR template — copied to each repo's `.github/`       |
+| `enforce-branch-source.yml`          | Branch enforcement workflow — copied to repos that need it     |
+| `sync-main-to-staging.yml`           | Main→staging auto-sync — copied to repos that use `staging`    |
+| `branching-workflow.md`              | Contributor guide — branching, merging, and sync process       |
+| `testing-guidelines.md`              | Contributor guide — what, how, and how much to test            |
+| `review-guidelines.md`               | AI-assisted review guide — verdicts, scope, and follow-ups     |
 
 ## Repository Categories
 
@@ -105,7 +111,9 @@ The `ci` job contains only steps that are real for that repo — lint, typecheck
 Repos with tests have a separate `test` job in the same workflow file. It runs in parallel for visibility but is **not required** by the ruleset. This avoids blocking PRs when:
 - The test engineer submits tests that expose implementation bugs
 - Pre-existing test failures haven't been fixed yet
-- A developer needs to merge partial work before all tests pass
+- A test or fixture improvement is useful independently of an existing implementation fix
+
+This ruleset choice does not make test results irrelevant. Reviewers should treat a new failure caused by a production-code change as blocking evidence of a regression. See [`testing-guidelines.md`](testing-guidelines.md) for the full distinction.
 
 ## Branch Enforcement
 
@@ -127,18 +135,27 @@ Some repos restrict which branches can open PRs to `main`. This is enforced by a
 
 The `check-source` job is **not** added to the required status checks in `critical.json`. It runs as a separate workflow and is informational by default. To make it blocking, add `"check-source"` to `required_status_checks` in the repo's imported ruleset.
 
+## Main → Staging Auto-Sync
+
+Repos that use a `staging` branch should have a workflow (`.github/workflows/sync-main-to-staging.yml`) that automatically merges `main` back into `staging` after any push to `main`. This prevents branch divergence. Repos without a `staging` branch do not need this workflow.
+
+**Canonical workflow file:** [`sync-main-to-staging.yml`](sync-main-to-staging.yml) in this folder. Copy to `.github/workflows/` in staging repos.
+
+For details on why this matters, the manual fallback, and the full branching process, see [`branching-workflow.md`](branching-workflow.md).
+
 ## Setup Order
 
 For a new repository:
 
 1. Add `.github/workflows/ci.yml` with a job named `ci`. Include only steps that are real for the repo — lint if it has a linter, typecheck if it's TypeScript, build if it produces output, compile if it's Solidity. No no-op steps. If the repo has tests, add a separate `test` job in the same file (not required by the ruleset).
-2. Add `.github/PULL_REQUEST_TEMPLATE.md` (copy from this folder).
-3. Push the branch and open a PR so the `ci` check runs once.
-4. Confirm the PR shows a check named exactly `ci`.
-5. Go to the repo → **Settings** → **Rules** → **Rulesets** → **New ruleset** → **Import a ruleset**.
-6. Upload `critical.json` or `standard.json`.
-7. Set enforcement to **Active**.
-8. Update the repository tables in this README.
+2. If the new repository uses a staging branch, add `.github/workflows/sync-main-to-staging.yml` (copy from this folder). This auto-syncs `main` back into `staging` after every merge to `main`, preventing branch divergence.
+3. Add `.github/PULL_REQUEST_TEMPLATE.md` (copy from this folder). Customize the Self-Merge Policy Reference lists for that repo — keep applicable items, delete the rest, add repo-specific ones.
+4. Push the branch and open a PR so the `ci` check runs once.
+5. Confirm the PR shows a check named exactly `ci`.
+6. Go to the repo → **Settings** → **Rules** → **Rulesets** → **New ruleset** → **Import a ruleset**.
+7. Upload `critical.json` or `standard.json`.
+8. Set enforcement to **Active**.
+9. Update the repository tables in this README.
 
 ## Emergency Self-Merge Policy
 
@@ -148,33 +165,9 @@ For a new repository:
 
 **How:** Open a normal PR. CI must pass. Fill out the self-merge section in the PR template. Tag a post-merge reviewer. Apply the `self-merged` and `post-merge-review-needed` labels.
 
-### Allowed self-merge examples
+### Allowed / never lists are per repository
 
-- Production outage fix
-- Broken deploy pipeline
-- Launch-blocking bug
-- Failed build blocking work
-- Low-risk typo / config fix
-- Dependency / security patch
-- Docs correction blocking external users
-- Test-only changes
-- CI / workflow fixes
-
-### Never self-merge (red-zone)
-
-These changes require a second pair of eyes regardless of urgency:
-
-- Smart contract logic
-- Contract deployment
-- Auth / signature verification
-- Permission model changes
-- Database migrations
-- Production secrets
-- GitHub Actions permission changes
-- Deployment credentials
-- Irreversible onchain changes
-- Registry identity / trust logic
-- Attestation validity logic
+The PR template skeleton is shared. The **Allowed self-merge** and **Never self-merge (red-zone)** lists are customized per repo from the catalog in [`PULL_REQUEST_TEMPLATE.md`](PULL_REQUEST_TEMPLATE.md). Contributors follow the lists in that repository's `.github/PULL_REQUEST_TEMPLATE.md`.
 
 If a red-zone change is truly urgent and no reviewer is available, escalate — don't self-merge.
 
@@ -190,6 +183,7 @@ A repo is considered hardened when all of the following are in place:
 | Ruleset enforcement active          | Enforcement set to Active in repo settings                    |
 | Bypass configured                   | `maintainers` team set as bypass actor (pull request only)    |
 | Branch enforcement (if applicable)  | `enforce-branch-source.yml` added for auto-deploying repos    |
+| Main→staging sync (if applicable)   | `sync-main-to-staging.yml` added for repos that use `staging` |
 
 ### Hardening Status
 
@@ -237,7 +231,7 @@ We are a two-person team. Requiring two reviewers would mean every PR needs both
 
 ### Why tests are not required
 
-Tests run in CI for visibility but don't block merges. This avoids a chicken-and-egg problem: the test engineer writes tests that expose implementation bugs, but can't merge the tests until the bugs are fixed. Separating the `test` job from the required `ci` job lets both roles work independently.
+The `test` job is visible but is not an automatically required merge check. This avoids a chicken-and-egg problem: the test engineer writes tests that expose implementation bugs, but can't merge the tests until the bugs are fixed. Separating the `test` job from the required `ci` job lets both roles work independently while still allowing reviewers to block a production-code regression supported by a newly failing test.
 
 ## Updating Rulesets
 
