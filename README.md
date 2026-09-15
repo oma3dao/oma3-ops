@@ -1,8 +1,13 @@
 # oma3-ops
 
-On-chain admin tooling and org-wide GitHub governance for OMA3.
+On-chain admin tooling and org-wide standards for OMA3.
 
-Command-line tools for OMA3 representatives to interact with on-chain contracts. OMA3 operates across two chains with different admin models:
+Two org-wide standards live here and apply to every OMA3 repo and property:
+
+- [`github-governance/`](github-governance/) — branch protection, CI policy, and review guidelines.
+- [`brand/`](brand/) — logo, colour, typography, layout, and voice.
+
+The rest of this README covers the on-chain admin tooling: command-line tools for OMA3 representatives to interact with on-chain contracts. OMA3 operates across two chains with different admin models:
 
 | Chain        | Admin Model                        | Contracts                    |
 |--------------|------------------------------------|------------------------------|
