@@ -38,6 +38,9 @@ something somebody eyeballed, which is the failure mode
 
 ## Assets
 
-Brand assets are not yet in this repo. The list of what needs commissioning is
-in [§11](brand-guidelines.md#11-assets-to-commission); an SVG wordmark is the
-blocker. Once they exist they belong in `brand/assets/`.
+- [`assets/oma3-logo.svg`](assets/oma3-logo.svg) — primary logo, mark plus wordmark.
+- [`fonts/`](fonts/) — Inter and Archivo Expanded, both under the SIL Open Font
+  License ([`fonts/OFL.txt`](fonts/OFL.txt)).
+
+Still to commission: solid one-colour logo versions, portraits, an icon set,
+and a chart palette. See [§11](brand-guidelines.md#11-assets-to-commission).

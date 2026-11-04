@@ -71,9 +71,11 @@ which the website's asset omits entirely.
 **Decision.** The full lockup (mark + wordmark) is the primary logo. The
 wordmark alone is permitted where horizontal space is constrained.
 
-**Recommendation.** Extract the lockup from the deck at full resolution and use
-it everywhere until an SVG exists. No vector version of either asset currently
-exists — see [§11](#11-assets-to-commission).
+The canonical file is [`brand/assets/oma3-logo.svg`](assets/oma3-logo.svg)
+(viewBox `0 0 158 42`), copied from `oma3dao/omatrust-landing` →
+`public/images/oma3-logo.svg`. It is the full lockup. The wordmark uses the
+brand gradient (`#7900FF`, `#327CFF`, `#00F4D7`). The mark keeps its own fills;
+those colours are not palette tokens.
 
 ### Gradient direction in the logo
 
@@ -609,11 +611,10 @@ Recorded so nobody assumes these were considered and omitted. Each has a
 
 Ordered by how much is blocked on each.
 
-1. **SVG wordmark and lockup.** ~~No vector version exists.~~ **An SVG wordmark
-   already exists** at `oma3dao/omatrust-landing` →
-   `public/images/oma3-logo.svg` (viewBox `0 0 158 42`, gradient-filled). It was
-   never moved anywhere findable. Copy it to `brand/assets/`, confirm whether it
-   includes the mark or only the wordmark, and commission the lockup if not.
+1. **SVG wordmark and lockup.** Done. The full lockup is
+   [`brand/assets/oma3-logo.svg`](assets/oma3-logo.svg) (viewBox `0 0 158 42`),
+   copied from `oma3dao/omatrust-landing` → `public/images/oma3-logo.svg`. The
+   wordmark uses the brand gradient. The mark's own fills are not palette tokens.
 2. **Solid one-colour logo versions** — white and `#333333`, wordmark and
    lockup. Needed for any placement on imagery.
 3. **Leadership portraits to spec.** Re-shoot or re-crop to
